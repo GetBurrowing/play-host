@@ -1,15 +1,15 @@
 ; Throwaway spike project for task 01a0db5f stage 1. It has no editor plugins
-; and no godot_ai autoload, so it cannot reach Connery's editor bridge.
+; and no godot_ai autoload, so it cannot reach the editor agent's editor bridge.
 config_version=5
 
 [application]
 
-config/name="suite-play-spike-01a0db5f"
+config/name="burrow-play-spike-01a0db5f"
 run/main_scene="res://main.tscn"
 
 [autoload]
 
-SuitePlay="*res://addons/suite_play/suite_play.gd"
+BurrowPlay="*res://addons/burrow_play/burrow_play.gd"
 
 [display]
 

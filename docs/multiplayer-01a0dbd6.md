@@ -1,19 +1,19 @@
 # Multiplayer game_stream: per-slot input-to-photon and the fan-out cost (01a0dbd6 stage 5)
 
 Task 01a0dbd6 (multiplayer game_stream), plan v1, stage 5. Measured on 2026-09-29 between
-00:49Z and 02:30Z. The host was wave, running the DEV play-host instance
-(`suite-play-host-dev-01a0dbd6`, runtime `play-host-wave-dev`, UDP 40310-40319, godot 40321,
-rtp 40331, play-host e2f0d86). The viewers were headless Google Chrome 153 on moon, one
-browser context per viewer, against the moon dev core on :4033 (core branch
+00:49Z and 02:30Z. The host was host-a, running the DEV play-host instance
+(`suite-play-host-dev-01a0dbd6`, runtime `play-host-a-dev`, UDP 40310-40319, godot 40321,
+rtp 40331, play-host e2f0d86). The viewers were headless Google Chrome 153 on host-b, one
+browser context per viewer, against the host-b dev core on :4033 (core branch
 `task/01a0dbd6-76bb-7001-a322-08a81e3d7927` at abb0f5a3c). The raw per-probe samples and
-every counter log are in `docs/multiplayer-01a0dbd6-results/`.
+counter logs are not kept in this repository; the tables below are their summary.
 
 **Prod was idle for every run.** Before and after each run, the rig checked whether the prod
 play-host was busy. It looked for a Godot or ffmpeg child whose command line points at
-`C:\Users\slaps\play-host\checkouts`, and at whether the last session line in the prod log was
+`C:\Users\operator\play-host\checkouts`, and at whether the last session line in the prod log was
 an end. All 19 runs read `PROD_BUSY=False` both times. The check was first shown to fire by
 pointing it at the busy dev instance, where both clauses returned `True`. Nothing bound UDP
-40300-40309, :40320 or :40330. Every wave reading was a read-only counter:
+40300-40309, :40320 or :40330. Every host-a reading was a read-only counter:
 `Get-NetAdapterStatistics`, `Get-NetUDPEndpoint` and `nvidia-smi`.
 
 ## Result
@@ -21,8 +21,8 @@ pointing it at the busy dev instance, where both clauses returned `True`. Nothin
 | | |
 |---|---|
 | Per-slot latency vs viewer count (LAN) | **No fan-out cost is measurable up to 4 players + 2 spectators.** Pooled p50 is 40.6 ms at 1 viewer, 41.5 ms at 2 players, 42.9 ms at 4 players and 41.6 ms at 4+2. Pooled p95 is 61.6, 60.6, 60.9 and 61.9 ms, and every 90% CI overlaps the 1-viewer control's. |
-| The ~60 ms p95 bar | The **1-viewer control is itself at the bar**: pooled p95 is 61.6 ms (90% CI 57.5-66.5, n=153, three runs). Under the stage's rule, 13 slots sit above the control plus its excess (11 without the moon-loaded rp2mj). Each is listed under Findings. None is distinguishable from the control at n of about 50. |
-| Relay (force_relay, hive coturn) | 2 players pooled: p50 44.1, p95 64.9 ms (n=318, three runs). The 1-player relay control gave p50 40.7, p95 50.5 ms (n=51). **The p50 rise of about 3.4 ms is the one fan-out difference whose CI clears the control's.** |
+| The ~60 ms p95 bar | The **1-viewer control is itself at the bar**: pooled p95 is 61.6 ms (90% CI 57.5-66.5, n=153, three runs). Under the stage's rule, 13 slots sit above the control plus its excess (11 without the host-b-loaded rp2mj). Each is listed under Findings. None is distinguishable from the control at n of about 50. |
+| Relay (force_relay, host-d coturn) | 2 players pooled: p50 44.1, p95 64.9 ms (n=318, three runs). The 1-player relay control gave p50 40.7, p95 50.5 ms (n=51). **The p50 rise of about 3.4 ms is the one fan-out difference whose CI clears the control's.** |
 | VRAM | **Flat: 811 MiB whole-GPU at 1, 2, 4, 2+2 and 4+2 peers (a 0 MiB spread).** For reference, 551 MiB with Godot up and no encoder, and 321 MiB with no session. |
 | NVENC | 2-15% utilisation at every viewer count (one encode). |
 | Upstream | **8.54 Mbps per peer, linear**, spectators included: 8.55 / 17.08 / 34.17 / 51.25 Mbps at 1 / 2 / 4 / 6 peers. |
@@ -30,14 +30,14 @@ pointing it at the busy dev instance, where both clauses returned `True`. Nothin
 | Joiner time to first frame | 1.05-1.54 s on LAN, from RTCPeerConnection creation to the first presented frame (n=11 joiners). Joiners on a relayed pair took 1.25-1.31 s, or 3.09-3.31 s for three of them. The first viewer takes 0.82-0.86 s on LAN, including the encoder start. |
 | `slot_stats` vs the hook | **0.0 ms difference** for every slot of every run: 36 player slots over 18 runs, comparing the row with the hook's rolling window at its last push. |
 | Spectators send nothing (live pages) | **0 `RTCDataChannel.send` calls** from 6 spectator pages across 3 runs, with `send` wrapped before any page script ran. The host logged no dropped input for them. Positive control: each spectator then forged 2 messages, and the host logged `dropped 1 input message(s) ... no slot (input-events)` twice per spectator peer. |
-| Stage 4's "2 fps at 375px over TURN" | **Not reproduced.** A 375px mobile-emulated viewer over forced relay decoded 60.0 frames/s (`totalVideoFrames`). Its rVFC (presented frame) count was 41-55/s, the same as a desktop viewer's, and wave sent it the full 8.54 Mbps. It is not a relay limit. See Findings 6. |
+| Stage 4's "2 fps at 375px over TURN" | **Not reproduced.** A 375px mobile-emulated viewer over forced relay decoded 60.0 frames/s (`totalVideoFrames`). Its rVFC (presented frame) count was 41-55/s, the same as a desktop viewer's, and host-a sent it the full 8.54 Mbps. It is not a relay limit. See Findings 6. |
 
 ## Rig and method
 
 ### Fixture
 
-- The fixture is dev-DB task `01a0ea90-0f73-7001-8f5f-07b3db421896`, "Voltron four-square multiplayer fixture (01a0dbd6 stage 5)", status `in_review`. Its project is Voltron, with repo_url `https://github.com/ryanmilvenan/voltron`.
-- Its branch is **`task/01a0ea90-0f73-7001-8f5f-07b3db421896`** on ryanmilvenan/voltron at `643edd99`: ONE commit on main (bebe173).
+- The fixture is dev-DB task `01a0ea90-0f73-7001-8f5f-07b3db421896`, "ExampleGame four-square multiplayer fixture (01a0dbd6 stage 5)", status `in_review`. Its project is ExampleGame, with repo_url `https://github.com/example-owner/example-game`.
+- Its branch is **`task/01a0ea90-0f73-7001-8f5f-07b3db421896`** on example-owner/example-game at `643edd99`: ONE commit on main (bebe173).
   - It adds `res://main/four_squares.gd`: a CanvasLayer (layer 64) with four 40 px squares, one per device 0-3, each with a `P<n> x,y` readout.
   - It adds a `FourSquares` node to `res://main/main.tscn`, the run/main_scene.
   - Each square moves by `Input.get_joy_axis(d, JOY_AXIS_LEFT_X/Y)` and by WASD in `_input`. Nothing is drawn in the top-left 64x64 px, which is the probe corner.
@@ -46,11 +46,11 @@ pointing it at the busy dev instance, where both clauses returned `True`. Nothin
 - **Checked live** (`fixture-*-01a0dbd6.jpg`). P1 and P2 joined from two contexts. P2 held D for 1.5 s, and in P1's view only the P2 square moved (380 to about 770). Then P1 held W, and only P1 moved.
 - The session was started through the real `GameStream.start_session` path: in_review task, project repo, and `task/<full uuid>` branch.
   - The dev container has no `gh`, so the default runner cannot read the branch head. It fails with `gh_unavailable`, and the rig passed the sha through the `:runner` option instead.
-  - The sha is 643edd99, read from `git ls-remote` on hive.
+  - The sha is 643edd99, read from `git ls-remote` on host-d.
 
 ### Driver
 
-The driver is `spike/driver/run-probes-multi.mjs`. It uses Node 22+ with no dependencies, and passes `node --check`. It runs on hive against Chrome on moon over an ssh tunnel. Each run is one fresh session, so each run gets its own `game_stream_sessions` row.
+The driver is `spike/driver/run-probes-multi.mjs`. It uses Node 22+ with no dependencies, and passes `node --check`. It runs on host-d against Chrome on host-b over an ssh tunnel. Each run is one fresh session, so each run gets its own `game_stream_sessions` row.
 
 - **One browser context per viewer**, each signed in as a distinct dev user (`/dev/login?as=<name>`). So every viewer has its own LiveView and its own RTCPeerConnection.
   - Viewers open one after another. Every viewer after the first is a joiner onto a running encoder.
@@ -64,47 +64,47 @@ The driver is `spike/driver/run-probes-multi.mjs`. It uses Node 22+ with no depe
   - So every probe in a run lands at nearly the same frame phase, drifting slowly, and a run samples one or two 16.7 ms buckets. c2-lan read 47-49 ms for 34 of its 50 samples (and 16 ms for 6 of its first 7); c1-lan read only 30-32, 47-49 or 81 ms. The bucket differs run to run and slot to slot by luck.
   - With `--jitter-ms 34`, every 1000 ms interval fires after 1000 + U[0, 34) ms, so the probes sweep two frame periods.
   - Every table below uses the jittered runs. The phase-locked first series is in the appendix. Its per-slot p50 spread (32-48 ms for the SAME configuration) shows why it cannot be compared across viewer counts.
-- **What the number is.** It is the Suite hook's own measure, the same as the footer readout and `slot_stats`: probe sent to the corner decoded in rVFC. It inherits the stage 1 method's resolution of one compositor frame.
+- **What the number is.** It is the Burrow hook's own measure, the same as the footer readout and `slot_stats`: probe sent to the corner decoded in rVFC. It inherits the stage 1 method's resolution of one compositor frame.
 - **Counters.**
-  - On wave, a read-only sampler logged every 2 s: nvidia-smi memory, encoder and GPU utilisation, adapter byte counters, and `Get-NetUDPEndpoint -OwningProcess <dev pid>`.
-  - On moon, the rig logged whole-host CPU and the Chrome container's cgroup CPU every 3 s.
+  - On host-a, a read-only sampler logged every 2 s: nvidia-smi memory, encoder and GPU utilisation, adapter byte counters, and `Get-NetUDPEndpoint -OwningProcess <dev pid>`.
+  - On host-b, the rig logged whole-host CPU and the Chrome container's cgroup CPU every 3 s.
   - Each figure in the tables is taken over the probe window only: all viewers open, until the last player has n samples.
-- **Moon had to be quiet.** Other agents' `core-test` runs share moon. The first 4-player run measured with moon at 84% busy: Chrome at 1.2 cores, decode 1.45 ms/frame, p50 about 58 ms.
-  - That run was discarded, and from then on each run waited for moon to be under 15% busy.
-  - rp2mj ran with moon at 48% (a sibling test started mid-run). It is in the tables and flagged, but it is not used for conclusions; rp2mj2 repeats it.
+- **Host-b had to be quiet.** Other agents' `core-test` runs share host-b. The first 4-player run measured with host-b at 84% busy: Chrome at 1.2 cores, decode 1.45 ms/frame, p50 about 58 ms.
+  - That run was discarded, and from then on each run waited for host-b to be under 15% busy.
+  - rp2mj ran with host-b at 48% (a sibling test started mid-run). It is in the tables and flagged, but it is not used for conclusions; rp2mj2 repeats it.
 
 ## Per-slot table (jittered runs)
 
-"Path" is the selected candidate pair in that viewer's browser. With the ICE policy "all", Chrome sometimes picked the hive TURN relay even on the LAN runs. The CIs are 90% bootstrap intervals.
+"Path" is the selected candidate pair in that viewer's browser. With the ICE policy "all", Chrome sometimes picked the host-d TURN relay even on the LAN runs. The CIs are 90% bootstrap intervals.
 
-| viewers | run | slot | user | n | lost | p50 ms (90% CI) | p95 ms (90% CI) | path | moon busy % |
+| viewers | run | slot | user | n | lost | p50 ms (90% CI) | p95 ms (90% CI) | path | host-b busy % |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 (control) | c1j-lan | P1 | jordan | 50 | 9 | 36.9 (34.8-41.4) | 57.5 (49.4-75.6) | TURN | 3.3 |
-| 1 (control) | c2j-lan | P1 | jordan | 52 | 4 | 40.9 (39.4-43.3) | 64.2 (50.8-66.7) | LAN | 3.8 |
-| 1 (control) | c3j-lan | P1 | jordan | 51 | 3 | 41.5 (37.7-44.2) | 61.6 (57.3-72.0) | LAN | 4.7 |
-| 2 | p2j-lan | P1 | jordan | 56 | 2 | 42.4 (41.0-44.1) | 64.8 (55.7-76.1) | LAN | 4.5 |
-| 2 | p2j-lan | P2 | ryan | 50 | 4 | 41.1 (39.0-43.8) | 61.4 (50.1-80.2) | LAN | 4.5 |
-| 2 (P2 at 375px) | p2mj-lan | P1 | jordan | 52 | 6 | 40.1 (37.6-44.1) | 58.8 (54.9-75.4) | TURN | 4.8 |
-| 2 (P2 at 375px) | p2mj-lan | P2 | ryan | 51 | 3 | 40.8 (38.9-43.8) | 60.2 (50.0-77.9) | LAN | 4.8 |
-| 4 | p4j-lan | P1 | jordan | 57 | 9 | 43.2 (40.4-46.6) | 70.0 (54.8-73.9) | LAN | 8.8 |
-| 4 | p4j-lan | P2 | ryan | 58 | 5 | 41.2 (39.5-44.6) | 59.5 (56.9-74.9) | LAN | 8.8 |
-| 4 | p4j-lan | P3 | saru | 51 | 8 | 43.1 (41.1-45.6) | 60.8 (58.1-76.1) | LAN | 8.8 |
-| 4 | p4j-lan | P4 | octavia | 55 | 0 | 42.9 (41.5-45.4) | 67.5 (57.2-73.9) | LAN | 8.8 |
-| 2+2 spectators | p2s2j-lan | P1 | jordan | 55 | 1 | 43.9 (42.4-46.8) | 67.2 (56.4-84.3) | LAN | 8.9 |
-| 2+2 spectators | p2s2j-lan | P2 | ryan | 51 | 1 | 40.0 (38.3-42.5) | 65.9 (60.1-67.5) | LAN | 8.9 |
-| 4+2 spectators | p4s2j-lan | P1 | jordan | 58 | 3 | 42.5 (39.9-47.9) | 69.0 (61.6-90.2) | TURN | 19.0 |
-| 4+2 spectators | p4s2j-lan | P2 | ryan | 53 | 6 | 40.2 (37.6-42.4) | 60.8 (54.8-67.3) | LAN | 19.0 |
-| 4+2 spectators | p4s2j-lan | P3 | saru | 55 | 0 | 40.8 (37.0-43.1) | 60.5 (56.2-62.4) | LAN | 19.0 |
-| 4+2 spectators | p4s2j-lan | P4 | octavia | 50 | 1 | 44.5 (41.6-46.8) | 61.7 (57.4-63.1) | LAN | 19.0 |
-| relay 1 (control) | rc1j | P1 | jordan | 51 | 1 | 40.7 (39.6-42.5) | 50.5 (45.9-65.6) | TURN | 4.1 |
-| relay 2 | rp2j | P1 | jordan | 53 | 3 | 43.9 (42.6-45.8) | 67.7 (52.2-69.2) | TURN | 15.8 |
-| relay 2 | rp2j | P2 | ryan | 50 | 2 | 44.4 (41.8-46.2) | 67.0 (55.7-68.9) | TURN | 15.8 |
-| relay 2 | rp2j2 | P1 | jordan | 55 | 3 | 47.9 (44.1-50.2) | 62.0 (61.6-70.8) | TURN | 5.0 |
-| relay 2 | rp2j2 | P2 | ryan | 50 | 2 | 46.7 (44.6-52.1) | 69.9 (60.7-78.2) | TURN | 5.0 |
-| relay 2 (P2 at 375px) | rp2mj2 | P1 | jordan | 58 | 0 | 41.1 (38.6-43.1) | 58.6 (52.8-63.0) | TURN | 11.4 |
-| relay 2 (P2 at 375px) | rp2mj2 | P2 | ryan | 52 | 0 | 42.9 (39.1-48.0) | 63.2 (57.7-79.2) | TURN | 11.4 |
-| relay 2 (P2 at 375px), moon loaded | rp2mj | P1 | jordan | 51 | 15 | 45.0 (43.4-50.6) | 71.4 (69.6-73.7) | TURN | **47.9** |
-| relay 2 (P2 at 375px), moon loaded | rp2mj | P2 | ryan | 50 | 10 | 45.0 (41.2-48.2) | 70.4 (65.2-71.2) | TURN | **47.9** |
+| 1 (control) | c1j-lan | P1 | user-1 | 50 | 9 | 36.9 (34.8-41.4) | 57.5 (49.4-75.6) | TURN | 3.3 |
+| 1 (control) | c2j-lan | P1 | user-1 | 52 | 4 | 40.9 (39.4-43.3) | 64.2 (50.8-66.7) | LAN | 3.8 |
+| 1 (control) | c3j-lan | P1 | user-1 | 51 | 3 | 41.5 (37.7-44.2) | 61.6 (57.3-72.0) | LAN | 4.7 |
+| 2 | p2j-lan | P1 | user-1 | 56 | 2 | 42.4 (41.0-44.1) | 64.8 (55.7-76.1) | LAN | 4.5 |
+| 2 | p2j-lan | P2 | user-2 | 50 | 4 | 41.1 (39.0-43.8) | 61.4 (50.1-80.2) | LAN | 4.5 |
+| 2 (P2 at 375px) | p2mj-lan | P1 | user-1 | 52 | 6 | 40.1 (37.6-44.1) | 58.8 (54.9-75.4) | TURN | 4.8 |
+| 2 (P2 at 375px) | p2mj-lan | P2 | user-2 | 51 | 3 | 40.8 (38.9-43.8) | 60.2 (50.0-77.9) | LAN | 4.8 |
+| 4 | p4j-lan | P1 | user-1 | 57 | 9 | 43.2 (40.4-46.6) | 70.0 (54.8-73.9) | LAN | 8.8 |
+| 4 | p4j-lan | P2 | user-2 | 58 | 5 | 41.2 (39.5-44.6) | 59.5 (56.9-74.9) | LAN | 8.8 |
+| 4 | p4j-lan | P3 | user-3 | 51 | 8 | 43.1 (41.1-45.6) | 60.8 (58.1-76.1) | LAN | 8.8 |
+| 4 | p4j-lan | P4 | user-4 | 55 | 0 | 42.9 (41.5-45.4) | 67.5 (57.2-73.9) | LAN | 8.8 |
+| 2+2 spectators | p2s2j-lan | P1 | user-1 | 55 | 1 | 43.9 (42.4-46.8) | 67.2 (56.4-84.3) | LAN | 8.9 |
+| 2+2 spectators | p2s2j-lan | P2 | user-2 | 51 | 1 | 40.0 (38.3-42.5) | 65.9 (60.1-67.5) | LAN | 8.9 |
+| 4+2 spectators | p4s2j-lan | P1 | user-1 | 58 | 3 | 42.5 (39.9-47.9) | 69.0 (61.6-90.2) | TURN | 19.0 |
+| 4+2 spectators | p4s2j-lan | P2 | user-2 | 53 | 6 | 40.2 (37.6-42.4) | 60.8 (54.8-67.3) | LAN | 19.0 |
+| 4+2 spectators | p4s2j-lan | P3 | user-3 | 55 | 0 | 40.8 (37.0-43.1) | 60.5 (56.2-62.4) | LAN | 19.0 |
+| 4+2 spectators | p4s2j-lan | P4 | user-4 | 50 | 1 | 44.5 (41.6-46.8) | 61.7 (57.4-63.1) | LAN | 19.0 |
+| relay 1 (control) | rc1j | P1 | user-1 | 51 | 1 | 40.7 (39.6-42.5) | 50.5 (45.9-65.6) | TURN | 4.1 |
+| relay 2 | rp2j | P1 | user-1 | 53 | 3 | 43.9 (42.6-45.8) | 67.7 (52.2-69.2) | TURN | 15.8 |
+| relay 2 | rp2j | P2 | user-2 | 50 | 2 | 44.4 (41.8-46.2) | 67.0 (55.7-68.9) | TURN | 15.8 |
+| relay 2 | rp2j2 | P1 | user-1 | 55 | 3 | 47.9 (44.1-50.2) | 62.0 (61.6-70.8) | TURN | 5.0 |
+| relay 2 | rp2j2 | P2 | user-2 | 50 | 2 | 46.7 (44.6-52.1) | 69.9 (60.7-78.2) | TURN | 5.0 |
+| relay 2 (P2 at 375px) | rp2mj2 | P1 | user-1 | 58 | 0 | 41.1 (38.6-43.1) | 58.6 (52.8-63.0) | TURN | 11.4 |
+| relay 2 (P2 at 375px) | rp2mj2 | P2 | user-2 | 52 | 0 | 42.9 (39.1-48.0) | 63.2 (57.7-79.2) | TURN | 11.4 |
+| relay 2 (P2 at 375px), host-b loaded | rp2mj | P1 | user-1 | 51 | 15 | 45.0 (43.4-50.6) | 71.4 (69.6-73.7) | TURN | **47.9** |
+| relay 2 (P2 at 375px), host-b loaded | rp2mj | P2 | user-2 | 50 | 10 | 45.0 (41.2-48.2) | 70.4 (65.2-71.2) | TURN | **47.9** |
 
 ### Pooled by viewer count, and the host-side cost as each run minus the control
 
@@ -121,14 +121,14 @@ The driver is `spike/driver/run-probes-multi.mjs`. It uses Node 22+ with no depe
 **Which side any excess sits on.**
 
 - **Host side.** VRAM is flat, NVENC stays at 2-15%, and the upstream bytes are exactly linear. **No joiner's arrival or departure restarted the encoder.** `encoder started` appears only while no other peer was connected. In some runs it appears twice: the first viewer's `/chat` landing peer connects and closes 0.2 s later, before its canvas page connects. That is a rig artefact of `/dev/login` landing on `/chat`.
-- **Viewer side.** Chrome's CPU grows with the viewer count: 0.13 cores at 1 viewer, 0.28 at 2, 0.78 at 4 and 1.28 at 4+2. Decode time grows from 0.76 to 1.0 ms/frame, on a 16-CPU moon at 3-19% busy.
+- **Viewer side.** Chrome's CPU grows with the viewer count: 0.13 cores at 1 viewer, 0.28 at 2, 0.78 at 4 and 1.28 at 4+2. Decode time grows from 0.76 to 1.0 ms/frame, on a 16-CPU host-b at 3-19% busy.
 - **The p50 creep of 1-2 ms on LAN** is within the CIs.
 - **The relay p50 increase of 3.4 ms**:
   - It is the only interval separated from its control.
   - It comes against a control of one run (n=51).
   - It is on a path where Chrome also picked TURN for the LAN control c1j, whose p50 was 36.9.
   - Treat it as a lead, not a result.
-- **The 4-player run on a loaded moon** (p50 about 58 ms, Chrome at 1.2 cores, decode 1.45 ms/frame) shows that viewer-side CPU contention on the measuring machine moves this number more than 4-way fan-out does.
+- **The 4-player run on a loaded host-b** (p50 about 58 ms, Chrome at 1.2 cores, decode 1.45 ms/frame) shows that viewer-side CPU contention on the measuring machine moves this number more than 4-way fan-out does.
 
 ### The 60 ms bar
 
@@ -142,11 +142,11 @@ Slots over the threshold, per-slot p95 with 90% CI:
 - p2j-lan P1 64.8 (55.7-76.1)
 - p4j-lan P1 70.0 (54.8-73.9) and P4 67.5 (57.2-73.9)
 - p2s2j-lan P1 67.2 (56.4-84.3) and P2 65.9 (60.1-67.5)
-- p4s2j-lan P1 69.0 (61.6-90.2); its path was TURN, and moon was at 19% busy
-- relay rp2j P1 67.7 and P2 67.0 (moon 15.8% busy)
+- p4s2j-lan P1 69.0 (61.6-90.2); its path was TURN, and host-b was at 19% busy
+- relay rp2j P1 67.7 and P2 67.0 (host-b 15.8% busy)
 - rp2j2 P1 62.0 and P2 69.9
 - rp2mj2 P2 63.2
-- rp2mj P1 71.4 and P2 70.4 (moon 48% busy, not used for conclusions)
+- rp2mj P1 71.4 and P2 70.4 (host-b 48% busy, not used for conclusions)
 
 One control run is itself over the LAN threshold: c2j-lan, 64.2.
 
@@ -159,7 +159,7 @@ What this does and does not support:
 
 ## Fan-out cost
 
-| run | peers | VRAM MiB | NVENC % | wave tx Mbps | per peer | UDP endpoints (dev pid) | moon busy % | Chrome cores |
+| run | peers | VRAM MiB | NVENC % | host-a tx Mbps | per peer | UDP endpoints (dev pid) | host-b busy % | Chrome cores |
 |---|---|---|---|---|---|---|---|---|
 | c1j-lan | 1 | 811 | 3-12 | 8.55 | 8.55 | 6-7 | 3.3 | 0.13 |
 | c2j-lan | 1 | 811 | 3-11 | 8.54 | 8.54 | 7-12 | 3.8 | 0.14 |
@@ -177,7 +177,7 @@ What this does and does not support:
   - **The claim is flat within about 50 MiB. It holds, with a spread of 0 MiB.** One encode feeds every peer.
 - **Upstream.** Taken from the delta of `Ethernet 2` `SentBytes` over the probe window, divided by the peer count. The 8000 kbps CBR stream plus RTP/SRTP overhead costs 8.54 Mbps per peer, and a spectator costs exactly what a player does. So the relay path in `max_spectators: 4` is about 8.5 Mbps per relayed viewer, as stage 2 bounded it.
 - **UDP endpoints held at 4+2** (p4s2j, the last sample in the window): 29 in total.
-  - `192.168.1.107:40310`, the ICE mux, carrying every peer's host candidate.
+  - `<host-a>:40310`, the ICE mux, carrying every peer's host candidate.
   - `127.0.0.1:40331`, the RTP loopback from ffmpeg.
   - 8 of `0.0.0.0:40311-40319`.
   - 18 OS-ephemeral sockets, 3 per peer, for the TURN relay allocations.
@@ -193,15 +193,15 @@ What this does and does not support:
 - **`slot_stats` vs the hook's samples.** For every run, the row's per-slot `rtt_p50_ms` and `rtt_p95_ms` equal the hook's rolling-window p50 and p95 at its last `game_stream_stats` push: a difference of 0.0 ms over 34 player slots. (The driver releases capture, waits one push and then stops the session, so the window is frozen.)
   - `peak_players` and `peak_spectators` matched each run: for example 4/2 at 4+2 and 2/2 at 2+2.
   - One caveat for readers of the row: the rolling window is the last 60 samples, not the whole run. That is what the hook reports, and it is why the raw-sample p95 in the tables can differ from the row when n > 60.
-- **Spectators on live pages** (Dalton's item 2). In p2s2-lan, p2s2j-lan and p4s2j-lan, the 6 spectator pages made **0** `RTCDataChannel.send` calls between page start and the end of the run: no key, pad, release_all or probe. That held although each clicked the video and received the same key presses as the players.
+- **Spectators on live pages** (the reviewer's item 2). In p2s2-lan, p2s2j-lan and p4s2j-lan, the 6 spectator pages made **0** `RTCDataChannel.send` calls between page start and the end of the run: no key, pad, release_all or probe. That held although each clicked the video and received the same key presses as the players.
   - The host logged no `dropped` line for any spectator peer in those runs. The line is written only when the per-peer counter is above 0.
   - Positive control, `--forge-spectator` in p2s2j-lan: after the honest count was read, each spectator sent two forged key messages (`slot: 0`) on the host's `input-events` channel. The host logged `peer <id>: dropped 1 input message(s), 1 in total: no slot (input-events)` and then `2 in total` for each spectator peer. So the counter fires when a spectator sends, and it did not fire before.
 
-## Relay and the 375px viewer (Dalton's item 1)
+## Relay and the 375px viewer (the reviewer's item 1)
 
 rp2mj2 ran force_relay with P2 in a 375x812 mobile-emulated context. The P2 viewer's inbound
 stats show 60.0 decoded frames/s (`totalVideoFrames` over the window). Its rVFC presented-frame
-count was a median of 55/s. It got the full 8.54 Mbps (wave's per-peer upstream is identical
+count was a median of 55/s. It got the full 8.54 Mbps (host-a's per-peer upstream is identical
 to the desktop peer's), and its decode time was 0.83 ms/frame. Its p95 of 63.2 ms (57.7-79.2)
 matches the desktop relay peer's 58.6 ms (52.8-63.0).
 
@@ -235,36 +235,36 @@ while the decoder runs at 60. That readout is the hook's `fps`, and it is rVFC-b
    - The rig tripped it because every viewer lands on `/chat` first. A real user navigating from chat to the canvas page would trip it the same way at the cap.
 4. **The dev DB had never run migration 20260928200000** (`add_player_dimensions_to_game_stream_sessions`, stage 2). Session rows from the stage 1-4 dev rigs failed to insert (`column g0.slot_stats does not exist`). The migration was run on the dev DB at 00:37Z, before any measured run. This is a rig fact, not a code defect.
 5. **The probe cadence is phase-locked to the frame clock.** The hook probes every 1000 ms, which is 60 frames, and reads latency at the 16.7 ms compositor frame. So within a run every sample lands in the same bucket, and the footer's p50 and `slot_stats` for one session can differ by a whole frame (16.7 ms) from the next session's for no physical reason. Seen in the appendix. Jittering the probe tick in the hook by U[0, 1 frame) would make the readout represent the phase distribution. That is a core change, not made here.
-6. **The footer's fps under-reports in headless Chrome.** It counts rVFC-presented frames, 40-55/s, while 60 are decoded. On a real display it should track decode. It explains Dalton's item 1.
+6. **The footer's fps under-reports in headless Chrome.** It counts rVFC-presented frames, 40-55/s, while 60 are decoded. On a real display it should track decode. It explains the reviewer's item 1.
 
 ## Stage 6: the runtime socket breaks were the dev rig's port forwarder
 
 The task-level review saw the host's runtime socket break twice in about 35 minutes of relay runs. The first was Bandit's `Received unexpected binary frame (RFC6455§5.4)`, close 1002. The second was a stall: an offer the host logged never reached core, and the host's heartbeat timed out 51 s later. Each break ended the session for every viewer. The hypothesis was a second writer interleaving a frame between the fragments of a >4096-byte offer. **That hypothesis is wrong.**
 
-**The mechanism, measured.** podman's `rootlessport`, which publishes the moon dev core on `192.168.1.200:4033` (podman 5.6.2, rootlesskit 3.0.0, kernel 6.16.8-200.fc42), sometimes hands the container different bytes from the ones the host sent, when traffic flows in both directions. Between the two capture points are the LAN (covered by TCP checksums), the moon NIC and kernel, and rootlessport; the control below shares every hop except rootlessport and was clean. Evidence (raw outputs in `multiplayer-01a0dbd6-results/stage6/`):
+**The mechanism, measured.** podman's `rootlessport`, which publishes the host-b dev core on `<host-b>:4033` (podman 5.6.2, rootlesskit 3.0.0, kernel 6.16.8-200.fc42), sometimes hands the container different bytes from the ones the host sent, when traffic flows in both directions. Between the two capture points are the LAN (covered by TCP checksums), the host-b NIC and kernel, and rootlessport; the control below shares every hop except rootlessport and was clean. Evidence (raw outputs in `multiplayer-01a0dbd6-results/stage6/`):
 
-- **Both ends captured.** pktmon ran at wave's NIC, filtered to TCP 4033. tcpdump ran in the dev core's network namespace (`--network container:`). For the same connections, the stream wave sent parses clean under a strict RFC 6455 reassembler (`wsframes-01a0dbd6.py`, Bandit's rules plus UTF-8/JSON validation of every unmasked message). The stream the container received has one frame whose payload goes wrong part-way: offsets 2069-2778 into a 6.8-16 KB frame, with bytes masked under a different key. The next "header" is then garbage: RSV bits, opcode 13, a "binary frame", or a length that stalls the reader. `streamdiff-01a0dbd6.py` on one case: identical total length; a 13,887-byte region differs; every later frame sits at the same offset on both sides.
-- **The same on the play host's own socket.** In the 60-min run with the new host, the 04:57:24 and 05:13:53 offers arrived corrupted in the container and intact at wave's NIC. Each was followed by a heartbeat miss (stall), then a resume.
-- **Without any websocket code.** `spike/tcpcheck` sends a PRNG stream in writes of 1-16 KB from wave, and a sink verifies every byte.
-  - One-way traffic, 1.2 GB through rootlessport and 1.2 GB straight to the moon host netns: both clean, and still clean with a slow reader.
+- **Both ends captured.** pktmon ran at host-a's NIC, filtered to TCP 4033. tcpdump ran in the dev core's network namespace (`--network container:`). For the same connections, the stream host-a sent parses clean under a strict RFC 6455 reassembler (`wsframes-01a0dbd6.py`, Bandit's rules plus UTF-8/JSON validation of every unmasked message). The stream the container received has one frame whose payload goes wrong part-way: offsets 2069-2778 into a 6.8-16 KB frame, with bytes masked under a different key. The next "header" is then garbage: RSV bits, opcode 13, a "binary frame", or a length that stalls the reader. `streamdiff-01a0dbd6.py` on one case: identical total length; a 13,887-byte region differs; every later frame sits at the same offset on both sides.
+- **The same on the play host's own socket.** In the 60-min run with the new host, the 04:57:24 and 05:13:53 offers arrived corrupted in the container and intact at host-a's NIC. Each was followed by a heartbeat miss (stall), then a resume.
+- **Without any websocket code.** `spike/tcpcheck` sends a PRNG stream in writes of 1-16 KB from host-a, and a sink verifies every byte.
+  - One-way traffic, 1.2 GB through rootlessport and 1.2 GB straight to the host-b host netns: both clean, and still clean with a slow reader.
   - With 200 B replies every 5 ms flowing back: 2 of 4 connections through rootlessport were corrupted in seconds (at bytes 11,273,679 and 28,023,954). The same traffic straight to the host netns: 0 of 4.
   - Later bidirectional batches: 1 of 16 connections corrupted, then 0 of 48. It is intermittent.
 - **Fragmentation is not the trigger.** On the old binary (gorilla's 4096-byte buffer), 150 of the host's 295 messages in 25 min of relay runs were fragmented offers, and all were intact. The stress bursts broke at 16 KB single frames as well (7 drops in 8 min; none in the 4 min at 4096, but the checker's size comparison, 0 of 24 connections against 0 of 24, shows no size effect).
 - **Not a concurrent writer.** Every write goes through `Client.write` under one mutex. Removing that lock makes gorilla PANIC ("concurrent write to websocket connection") under `TestConcurrentFragmentedPushesNeverInterleave`, rather than emit an interleaved frame. The host process never crashed in the review.
 
-**Re-run the raw-TCP reproduction** (`spike/tcpcheck`; ports 47101/47102 are free on moon and far from the prod play-host's 40300-40330):
+**Re-run the raw-TCP reproduction** (`spike/tcpcheck`; ports 47101/47102 are free on host-b and far from the prod play-host's 40300-40330):
 
 ```
 # build (any box; Go 1.25)
 CGO_ENABLED=0 go build -o tcpcheck ./spike/tcpcheck
 GOOS=windows go build -o tcpcheck.exe ./spike/tcpcheck
-# moon: one sink behind rootlessport (a rootless bridge container), one on the host netns
-podman run -d --name tcpcheck-rlp --network dev -p 192.168.1.200:47101:9000 -v $PWD:/w:z \
+# host-b: one sink behind rootlessport (a rootless bridge container), one on the host netns
+podman run -d --name tcpcheck-rlp --network dev -p <host-b>:47101:9000 -v $PWD:/w:z \
   docker.io/library/alpine:latest /w/tcpcheck serve -addr :9000 -slow 1ms -read 8192 -reply 5ms -reply-bytes 200
-./tcpcheck serve -addr 192.168.1.200:47102 -slow 1ms -read 8192 -reply 5ms -reply-bytes 200 &
-# wave (or any LAN client): 4 connections x 40 MB each way, writes of 1-16 KB
-tcpcheck.exe send -addr 192.168.1.200:47101 -bytes 40000000 -conns 4 -min 1000 -max 16000 -pause 1ms
-tcpcheck.exe send -addr 192.168.1.200:47102 -bytes 40000000 -conns 4 -min 1000 -max 16000 -pause 1ms
+./tcpcheck serve -addr <host-b>:47102 -slow 1ms -read 8192 -reply 5ms -reply-bytes 200 &
+# host-a (or any LAN client): 4 connections x 40 MB each way, writes of 1-16 KB
+tcpcheck.exe send -addr <host-b>:47101 -bytes 40000000 -conns 4 -min 1000 -max 16000 -pause 1ms
+tcpcheck.exe send -addr <host-b>:47102 -bytes 40000000 -conns 4 -min 1000 -max 16000 -pause 1ms
 # a corrupted connection logs, on the sink:  MISMATCH conn ... at byte N ... got .. want ..
 # and on the sender:                         conn K seed S: server says MISMATCH N
 ```
@@ -282,26 +282,26 @@ Drop `-reply` to see the one-way control (clean). The corruption is intermittent
 - Deliberate blip: core's RuntimeSocket was killed while three viewers were live. The host rejoined in 0.7 s and resumed with 3 peers, re-offering 0. All three stayed live on the same pc (max frame gap 251 ms), and a reload afterwards went live in 1.26 s.
 - 60-min run: 3 real stalls from the forwarder, each resumed in about 1 s with the stuck joiner re-offered. All 53 case-4 runs passed until the harness session idled out at its 30-min idle timeout (no input in the repro, panel and reload steps; not a fault).
 
-**Remaining gap, stated.** The corruption itself is still there on this rig. A stall is found by the heartbeat (10-20 s). In that window a joiner waits, and the host's frames are lost until the reconnect. Removing the cause is infra work, outside this task: publish the dev core without rootlessport (host network or pasta port forwarding), or fix or upgrade rootlessport. The milvenan prod core on moon is published the same way (`0.0.0.0:4000`); whether real clients reach it through rootlessport is for the infra owner to check.
+**Remaining gap, stated.** The corruption itself is still there on this rig. A stall is found by the heartbeat (10-20 s). In that window a joiner waits, and the host's frames are lost until the reconnect. Removing the cause is infra work, outside this task: publish the dev core without rootlessport (host network or pasta port forwarding), or fix or upgrade rootlessport. The other prod core on host-b is published the same way (`0.0.0.0:4000`); whether real clients reach it through rootlessport is for the infra owner to check.
 
 ### Correction (2026-09-29, after merge): rootlessport is not the sole cause
 
-An independent reproduction refuted the attribution above. The heading and "The mechanism, measured" name rootlessport as the cause. Read them as **a byte-corruption fault on the wave to moon path, cause under investigation.** The resume-on-reconnect work under "What changed in play-host" stands either way.
+An independent reproduction refuted the attribution above. The heading and "The mechanism, measured" name rootlessport as the cause. Read them as **a byte-corruption fault on the host-a to host-b path, cause under investigation.** The resume-on-reconnect work under "What changed in play-host" stands either way.
 
-- **The host-netns path also corrupts.** A moon container on `--network host`, which never goes through rootlessport, corrupted 2 of 300 connections from wave. The signature is the same: a region is replaced by the connection's own bytes from 97-1,355 bytes earlier, and the total length is unchanged.
-- **rootlessport raises the rate but is not the sole cause.** Through rootlessport, 24 of 548 connections from wave were corrupted. Through pasta, 0 of 200 were.
-- **Only wave triggered it.** Clients on hive and on moon itself had 0 corrupted connections on every path, rootlessport included (about 21 GB of client-to-server data).
-- **wave to hive was clean:** 0 of 201. That run was interleaved with a rootlessport run from wave that corrupted 13 of 200.
+- **The host-netns path also corrupts.** A host-b container on `--network host`, which never goes through rootlessport, corrupted 2 of 300 connections from host-a. The signature is the same: a region is replaced by the connection's own bytes from 97-1,355 bytes earlier, and the total length is unchanged.
+- **rootlessport raises the rate but is not the sole cause.** Through rootlessport, 24 of 548 connections from host-a were corrupted. Through pasta, 0 of 200 were.
+- **Only host-a triggered it.** Clients on host-d and on host-b itself had 0 corrupted connections on every path, rootlessport included (about 21 GB of client-to-server data).
+- **host-a to host-d was clean:** 0 of 201. That run was interleaved with a rootlessport run from host-a that corrupted 13 of 200.
 - **Version fix.** podman's rootlessport bundles rootlesskit v2.3.5, not the 3.0.0 stated above.
 - **The stage-6 control could not tell the two causes apart.** A 0 of 4 result on the host netns cannot distinguish them at a rate of about 1-4%.
-- **Current hypothesis, NOT measured:** the wave and moon pair. Both have RTL8125 NICs, and wave has large send offload and checksum offload on. The missing measurement is a capture on moon's `enp6s0` during a wave run.
-- **Raw data:** hive `~/sources/tmp/tcpcheck-rlp/RESULTS-652388.txt`.
+- **Current hypothesis, NOT measured:** the host-a and host-b pair. Both have RTL8125 NICs, and host-a has large send offload and checksum offload on. The missing measurement is a capture on host-b's `enp6s0` during a host-a run.
+- **Raw data:** host-d `~/sources/tmp/tcpcheck-rlp/RESULTS-652388.txt`.
 
 The "Remaining gap" remedy (publish the dev core without rootlessport) should therefore lower the rate, but it is not expected to remove the fault.
 
 ## Appendix: the phase-locked first series (no jitter)
 
-These runs are valid in every other respect: prod was idle, moon was quiet, n ≥ 50 and the rows match. But their samples fall in one or two 16.7 ms buckets per slot, so they are shown only to document Finding 5.
+These runs are valid in every other respect: prod was idle, host-b was quiet, n ≥ 50 and the rows match. But their samples fall in one or two 16.7 ms buckets per slot, so they are shown only to document Finding 5.
 
 | run | slot | n | lost | p50 | p95 | samples (ms, rounded, first 12) |
 |---|---|---|---|---|---|---|
@@ -313,19 +313,19 @@ These runs are valid in every other respect: prod was idle, moon was quiet, n �
 
 ## Reproduce
 
-Scripts are in `docs/multiplayer-01a0dbd6-results/rig/`:
+The rig scripts were kept with the raw run output, which is not in this repository. They were:
 
-- `run-s5-01a0dbd6.sh <label> <players> <spectators> <relay 0|1> [mobile idx|-] [n] [jitter]` runs one session end to end: the prod check, the moon quiet wait, session start through the dev BEAM, both samplers, the driver, the row and the host log.
+- `run-s5-01a0dbd6.sh <label> <players> <spectators> <relay 0|1> [mobile idx|-] [n] [jitter]` runs one session end to end: the prod check, the host-b quiet wait, session start through the dev BEAM, both samplers, the driver, the row and the host log.
 - `analyze-01a0dbd6.py <labels...>` builds the tables.
 
 The driver alone:
 
 ```
-node spike/driver/run-probes-multi.mjs --cdp 127.0.0.1:9223 --app http://192.168.1.200:4033 \
+node spike/driver/run-probes-multi.mjs --cdp 127.0.0.1:9223 --app http://<host-b>:4033 \
   --canvas <uuid> --players 4 --spectators 2 --n 50 --jitter-ms 34 --label p4s2 \
   --out p4s2-01a0dbd6.json [--forge-spectator] [--mobile 1]
 ```
 
-Chrome on moon is Google Chrome, not headless-shell (spike 01a0db5f item 5):
+Chrome on host-b is Google Chrome, not headless-shell (spike 01a0db5f item 5):
 `podman run -d --name chrome-01a0dbd6-s5 --network host --shm-size 2g --entrypoint /usr/bin/google-chrome docker.io/selenium/standalone-chrome --headless=new --no-sandbox --remote-debugging-port=9223 ...`,
-reached with `ssh -L 9223:127.0.0.1:9223 rocks@moon.local`.
+reached with `ssh -L 9223:127.0.0.1:9223 user@host-b.local`.

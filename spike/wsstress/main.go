@@ -51,7 +51,7 @@ func (h *handler) OnDisconnected(err error) {
 }
 
 func main() {
-	url := flag.String("url", "ws://192.168.1.200:4033/runtime/ws", "core runtime socket")
+	url := flag.String("url", "ws://127.0.0.1:4033/runtime/ws", "core runtime socket")
 	rt := flag.String("runtime", "", "runtime_id (a stress runtime, never the play host's)")
 	tok := flag.String("token-file", "", "runtime token file")
 	dur := flag.Duration("dur", 2*time.Minute, "how long to push")
@@ -62,8 +62,10 @@ func main() {
 	hb := flag.Duration("hb", time.Second, "heartbeat interval")
 	wbuf := flag.Int("write-buffer", -1, "Dialer.WriteBufferSize; -1 keeps the client's default")
 	flag.Parse()
-	if *rt == "" || *tok == "" || strings.HasPrefix(*rt, "play-host-wave") {
-		log.Fatal("need -runtime (a stress runtime) and -token-file")
+	// A play host's own runtime is named play-host-<host>; a stress runtime
+	// must say so in its id, so a prod host's runtime is never borrowed.
+	if *rt == "" || *tok == "" || (strings.HasPrefix(*rt, "play-host-") && !strings.Contains(*rt, "stress")) {
+		log.Fatal("need -runtime (a stress runtime, not a play host's) and -token-file")
 	}
 	h := &handler{connected: make(chan struct{}, 1)}
 	cfg := suite.Config{URL: *url, RuntimeID: *rt, TokenFile: *tok, Product: "wsstress", Heartbeat: *hb,

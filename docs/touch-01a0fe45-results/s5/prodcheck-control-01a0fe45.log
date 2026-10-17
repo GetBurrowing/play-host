@@ -1,2 +1,0 @@
-PROD_BUSY=True dir=C:\Users\slaps\play-host-dev-01a0fe45 children=2 prod_udp_binds=0 last=[2026/10/02 22:04:57.828209 [01a0fea6-1611-7001-a476-3cea68f0ae98] status connecting: Waiting for the viewer]
-PROD_BUSY=False dir=C:\Users\slaps\play-host children=0 prod_udp_binds=0 last=[2026/10/02 20:23:45.551209 [01a0fe3a-cbd8-7001-9697-e5ced0def14a] session ended: The play host disconnected]

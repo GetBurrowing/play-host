@@ -11,7 +11,7 @@ import (
 func writeConfig(t *testing.T, extra string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
-	body := `{"suite_url":"wss://suite.example/runtime/ws","runtime_id":"play-host-test","token_file":"token","godot":"godot","ffmpeg":"ffmpeg","git":"git","mirrors_dir":"mirrors","checkouts_dir":"checkouts","addon_dir":"addon","logs_dir":"logs","repos":[{"match":"example","url":"git@example/repo.git"}]` + extra + `}`
+	body := `{"burrow_url":"wss://burrow.example/runtime/ws","runtime_id":"play-host-test","token_file":"token","godot":"godot","ffmpeg":"ffmpeg","git":"git","mirrors_dir":"mirrors","checkouts_dir":"checkouts","addon_dir":"addon","logs_dir":"logs","repos":[{"match":"example","url":"git@example/repo.git"}]` + extra + `}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

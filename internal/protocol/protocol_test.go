@@ -15,7 +15,7 @@ const sha = "0123456789abcdef0123456789abcdef01234567"
 const startJSON = `{
   "session_id": "01a0db5f-0000-7000-8000-000000000001",
   "task_id": "01a0db5f-4f1a-7001-87a3-e777ad1cab82",
-  "repo_url": "https://github.com/ryanmilvenan/voltron",
+  "repo_url": "https://github.com/example-owner/example-game",
   "branch": "task/01a0db5f-4f1a-7001-87a3-e777ad1cab82",
   "sha": "` + sha + `",
   "encoder": {"preset":"p1","tune":"ll","bitrate_kbps":8000,"fps":60,"width":1280,"height":720,"gop_frames":120},

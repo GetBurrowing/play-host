@@ -1,4 +1,0 @@
-HOST play-host-wave features=["game_stream_host", "game_stream_multi", "game_stream_touch"] version="d32cb808a08719000187845c1e45ddd873fac4b1" session=nil
-present_hosts=1 wave_present=true
-WAVE_SESSION=nil
-live_sessions=0

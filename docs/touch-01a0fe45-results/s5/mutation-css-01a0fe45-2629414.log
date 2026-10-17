@@ -1,8 +1,0 @@
-     → expected [ 'margin-inline' ] to deeply equal []
-     → expected undefined to be '0' // Object.is equality
-⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
- FAIL  test/game_stream_css.test.js > game_stream.css fullscreen vs the portrait well > resets every property the portrait rule sets
-AssertionError: expected [ 'margin-inline' ] to deeply equal []
- FAIL  test/game_stream_css.test.js > game_stream.css fullscreen vs the portrait well > lets the fullscreen well span the frame
-AssertionError: expected undefined to be '0' // Object.is equality
-      Tests  2 failed | 1 passed (3)

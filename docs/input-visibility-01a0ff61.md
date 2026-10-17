@@ -37,7 +37,7 @@ line is unchanged.
 - **Per-peer state is fixed-size and atomic.** It consists of one counter and one first-seen `atomic.Bool` per type, held in arrays sized by `input.MsgTypes`. It adds one counter per drop reason, `badParse`, one `atomic.Pointer` to the first bad message's shape (stored once), and a `summarized` bool. Any unknown `t` collapses into `other`, so a hostile page cannot grow a map. The pion goroutines for the two channels write the state concurrently, and `go test -race` passes on it.
 - **The error class is not the error text.** A `*json.SyntaxError`'s message quotes a byte of the input (`invalid character 'o' …`), so it is never logged; only `syntax@<offset>` is. For a `*json.UnmarshalTypeError`, the JSON path is mapped to the `Browser` field it names (`type:X`), or `?` when it names no field. The field names therefore come from our struct, never from the browser.
 - **`input.Shape` returns key names only.** It lists at most 16 keys (then `+N more`) and cuts each to 32 bytes. Each byte outside printable ASCII becomes `?`, and so does each space, comma and square bracket. Stage 1 added that last rule beyond the plan: it stops a key from forging the list syntax or a `] viewer…` fragment.
-- **The wave idle check.** None of the new lines can match `\] (status |session ended|offer|viewer)` (prodcheck-01a0fe45.ps1). Every new line has `peer ` right after the `] ` prefix. The parts a browser influences are the key names in `<keys>`, and they cannot contain `]` or a space. The session-level tests check every captured new line against that regex, together with a positive control.
+- **The host-a idle check.** None of the new lines can match `\] (status |session ended|offer|viewer)` (prodcheck-01a0fe45.ps1). Every new line has `peer ` right after the `] ` prefix. The parts a browser influences are the key names in `<keys>`, and they cannot contain `]` or a space. The session-level tests check every captured new line against that regex, together with a positive control.
 - **`Result.Type` is new in this stage.** It did not exist on main. `Binding.Handle` now sets it to `MsgType(m.T)` for every message that decoded. `Handle` was split into `Handle` (decode, then set Type) and `handle` (the unchanged switch).
 - **The `SetSlots` signature changed.** It now returns `(lines []Out, bound, unbound []SlotChange)`, sorted by src then slot. A pair whose slot or src changed appears as one unbind plus one bind. v1 returns no changes. Every caller was updated: openPeer, reconcile, binding_test.go and input_test.go.
 
@@ -62,28 +62,30 @@ line is unchanged.
   - `TestMsgTypeIsAFixedSet` and `TestErrClassNeverQuotesTheInput` cover the type mapping and the error class.
 - The new host tests plus the existing spectator-touch and LogTouch tests passed 10 times in a row under `-race` (`-count=10`).
 
-## Evidence (in `input-visibility-01a0ff61-results/`)
+## Evidence
 
-- `go-checks-01a0ff61-2927941.log`: `gofmt -l .` printed nothing, `go vet ./...` and `GOOS=windows go vet ./...` both exited 0, and `go test -count=1 ./...` passed in every package. These checks ran on hive; this stage is Go, not mix. They ran on the working tree that was then committed. The commit added only this doc and the logs, with no code change.
+The log files named below were the raw run output; they are not kept in this repository, and these lines are their summary.
+
+- `go-checks-01a0ff61-2927941.log`: `gofmt -l .` printed nothing, `go vet ./...` and `GOOS=windows go vet ./...` both exited 0, and `go test -count=1 ./...` passed in every package. These checks ran on host-d; this stage is Go, not mix. They ran on the working tree that was then committed. The commit added only this doc and the logs, with no code change.
 - `mutation-m1-01a0ff61-2929890.log`: **M1** replaced `n := ps.badParse.Add(1)` with `ps.badParse.Load() + 1`, which deletes the increment. `TestInputVisibilityCountsAndUnparseable` then failed with `host_visibility_01a0ff61_test.go:184: timed out: 2 unparseable`. host.go was restored by cp-back and is byte-identical to the original, sha256 `289dfcec3b7e44c844e52896fa35b925b438d70e79d0f9618875b2b39a0a3fc0`.
 - `mutation-m2-01a0ff61-2930301.log`: **M2** replaced the first-seen `CompareAndSwap` guard with an unconditional `Store`. The same test then failed with `host_visibility_01a0ff61_test.go:178: first-touch lines = 33 after 33 touches, want exactly 1`. The restore is byte-identical, with the same sha256.
 
-## Wave swap (stage 2)
+## Host-a swap (stage 2)
 
 Prod runs the **unmerged branch tip**. If a later merge changes the tree, the deployer must swap again.
 
-- **Built from** play-host `d32cb808a08719000187845c1e45ddd873fac4b1`, tree `d5e42584b5e9a8b3e7cf0997a4541e71ad8728d4` (`git ls-remote` returned the same tip). It was cross-compiled on hive with `GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=<sha>" -o play-host-01a0ff61.exe ./cmd/play-host`.
+- **Built from** play-host `d32cb808a08719000187845c1e45ddd873fac4b1`, tree `d5e42584b5e9a8b3e7cf0997a4541e71ad8728d4` (`git ls-remote` returned the same tip). It was cross-compiled on host-d with `GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=<sha>" -o play-host-01a0ff61.exe ./cmd/play-host`.
 - **New exe** sha256 `DBA4517260B9E1C0EACD18247E9A0A9F33BB01983F5DE81C470467060AE4BC7C`.
 - **Old exe** (0664fa0, the 01a0fe45 build) sha256 `9DE64D7A63920846648B12695A9339377799BA7D170021BEC08FC72A22A852AE`.
-- **Backup:** `C:\Users\slaps\play-host\bin\play-host.exe.bak-01a0ff61-20261003T020955Z`, sha256 equal to the old exe. A second copy with the same hash is in `.bak-01a0ff61-20261003T020933Z` (see the first attempt below).
-- **Addon:** this task does not ship it. `addons/suite_play/suite_play.gd` on wave read `EBAF4A793C50801FAFED752D9DE2957D1AF346B4DFF668E7B9050C8F21AA2467` before and after the swap, which equals the branch copy.
+- **Backup:** `C:\Users\operator\play-host\bin\play-host.exe.bak-01a0ff61-20261003T020955Z`, sha256 equal to the old exe. A second copy with the same hash is in `.bak-01a0ff61-20261003T020933Z` (see the first attempt below).
+- **Addon:** this task does not ship it. `addons/suite_play/suite_play.gd` on host-a read `EBAF4A793C50801FAFED752D9DE2957D1AF346B4DFF668E7B9050C8F21AA2467` before and after the swap, which equals the branch copy.
 - Prod `config.json` was not touched.
 
 ### Idle check (both halves, read-only)
 
-- **(a) wave.** `prodcheck-01a0fe45.ps1` read `PROD_BUSY=False children=0 prod_udp_binds=0`. The last session line was `[01a0ff66-…] session ended: Ended by Ryan Milvenan` (01:41:32Z).
+- **(a) host-a.** `prodcheck-01a0fe45.ps1` read `PROD_BUSY=False children=0 prod_udp_binds=0`. The last session line was `[01a0ff66-…] session ended: Ended by Operator` (01:41:32Z).
   - **Positive control:** `prodcheck-control-01a0ff61-*.ps1` runs the same check on a scratch directory whose log ends in an `offer` line followed by one of this task's new `peer …: data channel … open` lines. It read `PROD_BUSY=True`. After a `session ended` line was appended, it read `False`. So the check fires, and the new lines do not mask a live session.
-- **(b) core.** wave's `suite_url` is `wss://suite.kobo-ai.com/runtime/ws`. On moon, `core-platform` has `PHX_HOST=suite.kobo-ai.com`; `core-platform-milv` is the milvenan install. `corecheck-01a0ff61-*.exs` was run with `bin/platform rpc`. It reads presence, the Registry and the DynamicSupervisor count, with no writes. Results: play-host-wave present, `session_for_host` nil, 0 live sessions. The last `game_stream_sessions` row for play-host-wave is 01a0ff66, `ended`.
+- **(b) core.** host-a's `suite_url` is `wss://burrow.example.com/runtime/ws`. On host-b, the prod `core-platform` container has `PHX_HOST=burrow.example.com`; a second core container there is a different install. `corecheck-01a0ff61-*.exs` was run with `bin/platform rpc`. It reads presence, the Registry and the DynamicSupervisor count, with no writes. Results: play-host-a present, `session_for_host` nil, 0 live sessions. The last `game_stream_sessions` row for play-host-a is 01a0ff66, `ended`.
   - Not shown: the core half was never seen returning a non-nil session, because no session was live to read.
 
 ### Features before and after
@@ -95,8 +97,8 @@ Prod runs the **unmerged branch tip**. If a later merge changes the tree, the de
 
 ### Confirm
 
-- The running prod process (pid 12860, `C:\Users\slaps\play-host\bin\play-host.exe`) has image sha256 `DBA45172…AE4BC7C`, equal to the built exe.
-- The log shows `play-host d32cb808a08719000187845c1e45ddd873fac4b1 serve: runtime play-host-wave via wss://suite.kobo-ai.com/runtime/ws`, then `host: joined; ready for play_session_start`.
+- The running prod process (pid 12860, `C:\Users\operator\play-host\bin\play-host.exe`) has image sha256 `DBA45172…AE4BC7C`, equal to the built exe.
+- The log shows `play-host d32cb808a08719000187845c1e45ddd873fac4b1 serve: runtime play-host-a via wss://burrow.example.com/runtime/ws`, then `host: joined; ready for play_session_start`.
 - prodcheck afterwards read `PROD_BUSY=False`.
 
 ### First attempt (20261003T020933Z) aborted mid-swap; corrected
@@ -109,6 +111,6 @@ The old exe was never overwritten. The task's restart policy brought the old bui
 
 ### Rollback
 
-On wave, `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\slaps\play-host-01a0ff61-scratch\rollback-01a0ff61.ps1 -Stamp 20261003T020955Z`. A copy of the script is committed as `rollback-01a0ff61-20261003T020955Z.ps1`.
+On host-a, `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\operator\play-host-01a0ff61-scratch\rollback-01a0ff61.ps1 -Stamp 20261003T020955Z`. A copy of the script is committed as `rollback-01a0ff61-20261003T020955Z.ps1`.
 - It stops `suite-play-host`, copies `.bak-01a0ff61-20261003T020955Z` back and starts the task.
 - Afterwards, check that the image hash reads `9DE64D7A…852AE`, and that core lists the same three features with version 0664fa0.

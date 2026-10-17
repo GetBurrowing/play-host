@@ -1,3 +1,0 @@
-old stuck at lastFrame+10s: false (expected true)
-new stuck at lastFrame+10s: true (expected true)
-old rule first shows Still connecting at lastFrame+12900 ms

@@ -10,13 +10,13 @@ import (
 	"testing"
 )
 
-// voltronProject is Voltron's project.godot at bebe173f (2026-09-26).
-const voltronProject = `; Engine configuration file.
+// exampleGameProject is ExampleGame's project.godot at bebe173f (2026-09-26).
+const exampleGameProject = `; Engine configuration file.
 config_version=5
 
 [application]
 
-config/name="Voltron"
+config/name="ExampleGame"
 run/main_scene="res://main/main.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
@@ -33,8 +33,8 @@ enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg")
 3d/physics_engine="Jolt Physics"
 `
 
-func TestPatchProjectGodotVoltron(t *testing.T) {
-	out, removed := PatchProjectGodot(voltronProject)
+func TestPatchProjectGodotExampleGame(t *testing.T) {
+	out, removed := PatchProjectGodot(exampleGameProject)
 	if strings.Contains(out, "_mcp_game_helper") || strings.Contains(out, "godot_ai") {
 		t.Fatalf("godot_ai survived:\n%s", out)
 	}
@@ -75,25 +75,25 @@ func TestPatchProjectGodotKeepsOtherPluginsAndAddsSection(t *testing.T) {
 
 func TestNormalizeAndFindRepo(t *testing.T) {
 	for _, u := range []string{
-		"https://github.com/ryanmilvenan/voltron", "https://github.com/RyanMilvenan/voltron.git",
-		"git@github.com:ryanmilvenan/voltron.git", "ssh://git@github.com/ryanmilvenan/voltron.git",
-		"https://x-token@github.com/ryanmilvenan/voltron/", "ssh://git@github.com:22/ryanmilvenan/voltron",
+		"https://github.com/example-owner/example-game", "https://github.com/Example-Owner/example-game.git",
+		"git@github.com:example-owner/example-game.git", "ssh://git@github.com/example-owner/example-game.git",
+		"https://x-token@github.com/example-owner/example-game/", "ssh://git@github.com:22/example-owner/example-game",
 	} {
 		n, err := NormalizeRepo(u)
-		if err != nil || n != "github.com/ryanmilvenan/voltron" {
+		if err != nil || n != "github.com/example-owner/example-game" {
 			t.Errorf("%s -> %q %v", u, n, err)
 		}
 	}
-	for _, bad := range []string{"", "voltron", "https://github.com/ryanmilvenan", "https://github.com/a/b/c"} {
+	for _, bad := range []string{"", "example-game", "https://github.com/example-owner", "https://github.com/a/b/c"} {
 		if _, err := NormalizeRepo(bad); err == nil {
 			t.Errorf("%q normalized", bad)
 		}
 	}
-	c := Config{Repos: []Repo{{Match: "github.com/ryanmilvenan/voltron", CloneURL: "git@github.com:ryanmilvenan/voltron.git"}}}
-	if r, err := c.FindRepo("https://github.com/ryanmilvenan/voltron"); err != nil || r.CloneURL == "" {
+	c := Config{Repos: []Repo{{Match: "github.com/example-owner/example-game", CloneURL: "git@github.com:example-owner/example-game.git"}}}
+	if r, err := c.FindRepo("https://github.com/example-owner/example-game"); err != nil || r.CloneURL == "" {
 		t.Fatal(r, err)
 	}
-	if _, err := c.FindRepo("https://github.com/evil/voltron"); err == nil {
+	if _, err := c.FindRepo("https://github.com/evil/example-game"); err == nil {
 		t.Fatal("unlisted repo accepted")
 	}
 }
@@ -153,7 +153,7 @@ func TestMirrorWorktreeExactSha(t *testing.T) {
 	up := filepath.Join(root, "upstream")
 	os.MkdirAll(up, 0o755)
 	run(t, git, up, "init", "-q", "-b", "main")
-	os.WriteFile(filepath.Join(up, "project.godot"), []byte(voltronProject), 0o644)
+	os.WriteFile(filepath.Join(up, "project.godot"), []byte(exampleGameProject), 0o644)
 	run(t, git, up, "add", ".")
 	run(t, git, up, "commit", "-q", "-m", "one")
 	want := run(t, git, up, "rev-parse", "HEAD")
@@ -164,13 +164,13 @@ func TestMirrorWorktreeExactSha(t *testing.T) {
 
 	addon := filepath.Join(root, "addon")
 	os.MkdirAll(addon, 0o755)
-	os.WriteFile(filepath.Join(addon, "suite_play.gd"), []byte("extends Node\n"), 0o644)
+	os.WriteFile(filepath.Join(addon, "burrow_play.gd"), []byte("extends Node\n"), 0o644)
 
 	b := &Builder{Cfg: Config{
 		Git: git, MirrorsDir: filepath.Join(root, "mirrors"), CheckoutsDir: filepath.Join(root, "checkouts"), AddonDir: addon,
-		Repos: []Repo{{Match: "github.com/o/voltron", CloneURL: up}},
+		Repos: []Repo{{Match: "github.com/o/example-game", CloneURL: up}},
 	}}
-	r, _ := b.Cfg.FindRepo("https://github.com/o/voltron")
+	r, _ := b.Cfg.FindRepo("https://github.com/o/example-game")
 	ctx := context.Background()
 	mirror, err := b.EnsureCommit(ctx, r, want)
 	if err != nil {
@@ -186,11 +186,11 @@ func TestMirrorWorktreeExactSha(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "later.txt")); err == nil {
 		t.Fatal("checkout carries the later commit")
 	}
-	removed, err := b.InstallAddon(dir)
-	if err != nil || len(removed) != 2 {
-		t.Fatal(removed, err)
+	installed, removed, err := b.InstallAddon(dir)
+	if err != nil || len(removed) != 2 || installed != BurrowPlay {
+		t.Fatal(installed, removed, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "addons", "suite_play", "suite_play.gd")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "addons", "burrow_play", "burrow_play.gd")); err != nil {
 		t.Fatal(err)
 	}
 	// Re-checkout of the same sha reuses the dir (keeps the import cache).
@@ -229,7 +229,7 @@ func TestMirrorWorktreeExactSha(t *testing.T) {
 
 func TestImportArgsCarryMarker(t *testing.T) {
 	a := strings.Join(ImportArgs("C:/co/x", "sess"), " ")
-	if a != "--headless --import --path C:/co/x -- --suite-play-session=sess" {
+	if a != "--headless --import --path C:/co/x -- --burrow-play-session=sess --suite-play-session=sess" {
 		t.Fatal(a)
 	}
 }
@@ -244,15 +244,15 @@ func TestRemoveCheckout(t *testing.T) {
 	up := filepath.Join(root, "upstream")
 	os.MkdirAll(up, 0o755)
 	run(t, git, up, "init", "-q", "-b", "main")
-	os.WriteFile(filepath.Join(up, "project.godot"), []byte(voltronProject), 0o644)
+	os.WriteFile(filepath.Join(up, "project.godot"), []byte(exampleGameProject), 0o644)
 	run(t, git, up, "add", ".")
 	run(t, git, up, "commit", "-q", "-m", "one")
 	sha := run(t, git, up, "rev-parse", "HEAD")
 	b := &Builder{Cfg: Config{
 		Git: git, MirrorsDir: filepath.Join(root, "mirrors"), CheckoutsDir: filepath.Join(root, "checkouts"),
-		Repos: []Repo{{Match: "github.com/o/voltron", CloneURL: up}},
+		Repos: []Repo{{Match: "github.com/o/example-game", CloneURL: up}},
 	}}
-	r, _ := b.Cfg.FindRepo("https://github.com/o/voltron")
+	r, _ := b.Cfg.FindRepo("https://github.com/o/example-game")
 	ctx := context.Background()
 	mirror, err := b.EnsureCommit(ctx, r, sha)
 	if err != nil {
@@ -301,15 +301,15 @@ func TestSweepCheckouts(t *testing.T) {
 	up := filepath.Join(root, "upstream")
 	os.MkdirAll(up, 0o755)
 	run(t, git, up, "init", "-q", "-b", "main")
-	os.WriteFile(filepath.Join(up, "project.godot"), []byte(voltronProject), 0o644)
+	os.WriteFile(filepath.Join(up, "project.godot"), []byte(exampleGameProject), 0o644)
 	run(t, git, up, "add", ".")
 	run(t, git, up, "commit", "-q", "-m", "one")
 	sha := run(t, git, up, "rev-parse", "HEAD")
 	b := &Builder{Cfg: Config{
 		Git: git, MirrorsDir: filepath.Join(root, "mirrors"), CheckoutsDir: filepath.Join(root, "checkouts"),
-		Repos: []Repo{{Match: "github.com/o/voltron", CloneURL: up}},
+		Repos: []Repo{{Match: "github.com/o/example-game", CloneURL: up}},
 	}}
-	r, _ := b.Cfg.FindRepo("https://github.com/o/voltron")
+	r, _ := b.Cfg.FindRepo("https://github.com/o/example-game")
 	ctx := context.Background()
 	mirror, _ := b.EnsureCommit(ctx, r, sha)
 	dir, _ := CheckoutDir(b.Cfg.CheckoutsDir, "01a0dcc3", sha)
@@ -334,5 +334,45 @@ func TestSweepCheckouts(t *testing.T) {
 	b2 := &Builder{Cfg: Config{Git: git, CheckoutsDir: filepath.Join(root, "missing")}}
 	if got, err := b2.SweepCheckouts(ctx); err != nil || len(got) != 0 {
 		t.Fatalf("missing dir: %v %v", got, err)
+	}
+}
+
+func TestDetectAddonPrefersBurrowPlayAndAcceptsLegacy(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := DetectAddon(dir); err == nil {
+		t.Fatal("an empty addon_dir was accepted")
+	}
+	os.WriteFile(filepath.Join(dir, "suite_play.gd"), []byte("extends Node\n"), 0o644)
+	if a, err := DetectAddon(dir); err != nil || a != LegacySuitePlay {
+		t.Fatalf("legacy only: %v %v", a, err)
+	}
+	os.WriteFile(filepath.Join(dir, "burrow_play.gd"), []byte("extends Node\n"), 0o644)
+	if a, err := DetectAddon(dir); err != nil || a != BurrowPlay {
+		t.Fatalf("both: %v %v", a, err)
+	}
+}
+
+// A host whose addon_dir still holds the older suite_play.gd gets that
+// script installed under its own name and registered with its own autoload,
+// so the autoload never points at a file that is not there.
+func TestInstallAddonLegacyCopy(t *testing.T) {
+	root := t.TempDir()
+	addon := filepath.Join(root, "addon")
+	os.MkdirAll(addon, 0o755)
+	os.WriteFile(filepath.Join(addon, "suite_play.gd"), []byte("extends Node\n"), 0o644)
+	dir := filepath.Join(root, "co")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "project.godot"), []byte("[autoload]\n\nBurrowPlay=\"*res://addons/burrow_play/burrow_play.gd\"\n"), 0o644)
+	b := &Builder{Cfg: Config{AddonDir: addon}}
+	installed, _, err := b.InstallAddon(dir)
+	if err != nil || installed != LegacySuitePlay {
+		t.Fatal(installed, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "addons", "suite_play", "suite_play.gd")); err != nil {
+		t.Fatal(err)
+	}
+	pg, _ := os.ReadFile(filepath.Join(dir, "project.godot"))
+	if strings.Count(string(pg), "Play=") != 1 || !strings.Contains(string(pg), LegacyAutoload) {
+		t.Fatalf("project.godot:\n%s", pg)
 	}
 }

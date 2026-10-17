@@ -1,9 +1,9 @@
-# Spike 01a0db5f stage 1: a session-0 frame path on wave
+# Spike 01a0db5f stage 1: a session-0 frame path on host-a
 
 Task 01a0db5f ("Playable review builds: a game_stream canvas"), plan v1, stage 1.
-Measured 2026-09-26 between 02:10Z and 03:00Z on wave (Windows 11 Home, RTX 3080 Ti,
-driver 610.47, Godot 4.7.2, ffmpeg 9.0.2), with headless Google Chrome 153 on moon as
-the viewer. The raw per-probe samples are in `docs/spike-01a0db5f-results/`.
+Measured 2026-09-26 between 02:10Z and 03:00Z on host-a (Windows 11 Home, RTX 3080 Ti,
+driver 610.47, Godot 4.7.2, ffmpeg 9.0.2), with headless Google Chrome 153 on host-b as
+the viewer. The raw per-probe samples are not kept in this repository; the tables below are their summary.
 
 **If you are reading this to size stage 2 or 3, read "What stage 2 and 3 must know" first.**
 
@@ -16,7 +16,7 @@ the viewer. The raw per-probe samples are in `docs/spike-01a0db5f-results/`.
 | Chosen control preset | **`p1` / `ll`**, CBR 8000 kbps, 60 fps, GOP 120, baseline, zerolatency, no lookahead, no B-frames, forced IDR. As `game_stream.encoder_preset`: `{"preset":"p1","tune":"ll","bitrate_kbps":8000,"fps":60,"width":1280,"height":720,"gop_frames":120}`. **The delivered size is 1028x720, not 1280x720**; see below |
 | Input-to-photon, control arm | p50 **41.6 ms**, p95 **51.7 ms**, n=150, 0 lost (run d1). All six p1/ll probes runs pooled: n=206, 4 lost |
 | VRAM | Idle, with llama-swap holding `qwen3.5-9b`: 6796 MiB used of 12288. Streaming: 7224-7451 MiB used, **4636-4863 MiB free**. The stream (Godot + ffmpeg/NVENC) costs 430-655 MiB |
-| Session-0 context | A throwaway scheduled task `suite-play-spike-01a0db5f`: S4U, user `WAVE\slaps`, RunLevel Limited, the same principal as `connery-godot`. It runs in window station `Service-0x0-3bdae4c$`, session 0. No interactive user is logged on (LogonUI.exe is in session 1) |
+| Session-0 context | A throwaway scheduled task `suite-play-spike-01a0db5f`: S4U, user `HOST-A\operator`, RunLevel Limited, the same principal as `editor-godot`. It runs in window station `Service-0x0-3bdae4c$`, session 0. No interactive user is logged on (LogonUI.exe is in session 1) |
 
 ## Frame-path matrix
 
@@ -52,11 +52,11 @@ arrived. `after recv` is the rest: the jitter buffer, decode and the compositor 
 that carries it, decoded on the host from the raw RGBA. That covers the addon's
 `_process` poll (up to one frame), render and `get_image()`.
 
-Chrome: Google Chrome 153 headless (`selenium/standalone-chrome` image) on moon,
+Chrome: Google Chrome 153 headless (`selenium/standalone-chrome` image) on host-b,
 `--headless=new`. **Its GPU process fails to initialise** (`eglInitialize SwANGLE failed`),
 so decode is software. `decoderImplementation` is hidden by Chrome's stats privacy gate
 without a capture permission. The mean decode time is 0.40-0.51 ms per frame. The selected
-pair is always `host 192.168.1.107:4030x <-> prflx 192.168.1.200` (LAN, no TURN).
+pair is always `host <host-a>:4030x <-> prflx <host-b>` (LAN, no TURN).
 
 | run | preset/tune | framing | readback | n | lost | p50 ms | p95 ms | host p50 | recv p50 | after recv p50 | fps | jitter buf ms | VRAM used, free |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -96,7 +96,7 @@ What the table does and does not support:
   The after-receive part is the noisiest, and it belongs to headless Chrome. A real
   desktop Chrome with hardware decode and a display should do better, but that is not
   measured here.
-- **GPU contention.** Other work used wave's GPU during some runs: nvidia-smi read 22-96%
+- **GPU contention.** Other work used host-a's GPU during some runs: nvidia-smi read 22-96%
   utilisation during d1, d2, d4 and c6, and 99% at idle afterwards, while llama-swap had
   qwen3.5-9b loaded. The numbers were taken under that load. They were not taken on a
   quiet GPU.
@@ -154,32 +154,32 @@ poll wait, which is the larger share.
      picture is simply smaller.
 2. **The window title carries a ` (DEBUG)` suffix.** Anything that matches the Godot
    window by title must allow for it. Path B is dead regardless.
-3. **git is not installed on wave's Windows side.** (`git` is not on PATH, and there is
+3. **git is not installed on host-a's Windows side.** (`git` is not on PATH, and there is
    no `C:\Program Files\Git`.) Stage 3's bare mirror plus `git worktree add` needs Git for
    Windows installed, or it must shell into WSL git. The WSL route crosses the /mnt/c
    boundary and is slow on big checkouts.
 4. **`query user` does not exist on Windows 11 Home.** Use the LogonUI.exe/explorer.exe
    session check instead.
 5. **Headless Chrome for e2e must be Google Chrome, not `chromedp/headless-shell`.**
-   - The headless-shell image in the `dev-on-moon-e2e-rig` skill has no H.264 in WebRTC.
+   - The headless-shell image in the `dev-on-host-b-e2e-rig` skill has no H.264 in WebRTC.
      `RTCRtpReceiver.getCapabilities('video')` lists VP8, VP9 and AV1 only.
    - NVENC on Ampere cannot encode AV1, and does not encode VP8 or VP9, so that image can
      never decode this stream.
    - What worked:
      `podman run -d --name <tag>-chrome --network host --shm-size 2g --entrypoint /usr/bin/google-chrome docker.io/selenium/standalone-chrome --headless=new --no-sandbox --remote-debugging-port=9223 --user-data-dir=/tmp/<tag> --autoplay-policy=no-user-gesture-required about:blank`
-   - It binds 127.0.0.1 only, so reach it with `ssh -L 19223:127.0.0.1:9223 rocks@moon.local`.
-   - This also affects stage 6's e2e setup, which says "headless Chrome on moon".
+   - It binds 127.0.0.1 only, so reach it with `ssh -L 19223:127.0.0.1:9223 user@host-b.local`.
+   - This also affects stage 6's e2e setup, which says "headless Chrome on host-b".
 6. **The Job Object works.**
    - Godot is created suspended, assigned to the job, then resumed (`internal/launch`).
      `Kill` reported the whole tree every time, e.g. `pids=[13808 14008 9572]`: the console
      wrapper, the real exe and one more child.
    - `KILL_ON_JOB_CLOSE` also took Godot down when play-host itself was force-stopped.
    - No process was ever matched by name.
-7. **The `connery-godot-loop.ps1` exemption holds.**
-   - Backup: `connery-godot-loop.ps1.bak-01a0db5f-202609260209`, sha256 `CD60CB3C...7845`.
+7. **The `editor-godot-loop.ps1` exemption holds.**
+   - Backup: `editor-godot-loop.ps1.bak-01a0db5f-202609260209`, sha256 `CD60CB3C...7845`.
      The patched file's sha256 is `A09F88A5...9850`.
    - The loop was restarted by stopping its powershell pid (10888) and running
-     `Start-ScheduledTask connery-godot`. The new supervisor pid is 5804.
+     `Start-ScheduledTask editor-godot`. The new supervisor pid is 5804.
    - The headless editor, pids 10088 and 12024 (started 2026-09-25 17:30:32 local),
      survived that restart, all 16 windowed spike Godot launches, and the 3 headless `--check-only` runs.
    - Since the restart, the loop log shows no "GUI Godot detected".
@@ -189,7 +189,7 @@ poll wait, which is the larger share.
      Both the ssh session and the S4U task are elevated, so the obvious integrity-level
      explanation does not hold, and the cause is unknown.
    - Stage 3 should consider treating an empty command line as not-GUI. That is a change
-     to Connery's loop, and was not made here.
+     to the editor agent's loop, and was not made here.
 8. **The subprocess encoder cannot force an IDR on PLI.**
    - Chrome sent 7 PLIs in the first run, when joining mid-GOP.
    - The spike uses a bounded GOP (120) plus in-band SPS/PPS before every keyframe
@@ -198,12 +198,12 @@ poll wait, which is the larger share.
    - A viewer joining mid-GOP waits up to 2 s for a picture. `waitLive` measured 2.4 s to
      the first 10 frames.
    - Stage 3 should use a GOP of 60, or `-intra-refresh 1`, and record which one it uses.
-9. **ICE worked with host candidates only.** The host offered only `192.168.1.107`, via
+9. **ICE worked with host candidates only.** The host offered only `<host-a>`, via
    `-host-ip`. Chrome's side arrived as prflx, so its mDNS obfuscation made no difference.
    Firewall rule `suite-play-host-udp-01a0db5f`:
    - inbound UDP 40300-40309;
-   - program `C:\Users\slaps\play-host\bin\play-host.exe`;
-   - remote 192.168.1.0/24;
+   - program `C:\Users\operator\play-host\bin\play-host.exe`;
+   - remote <lan>/24;
    - all profiles.
    It is the only rule created.
 10. **Signalling needs no firewall rule.** HTTP is bound to 127.0.0.1:18431 and reached
@@ -216,6 +216,6 @@ with the session):
 
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o play-host.exe ./cmd/play-host
     play-host.exe spike -source C -export image -preset p1 -tune ll -godot <console exe> \
-      -project <copy of spike/godot + addons/suite_play> -ffmpeg <ffmpeg.exe> -host-ip 192.168.1.107 -logs <dir>
-    ssh -N -L 18431:127.0.0.1:18431 wave &
+      -project <copy of spike/godot + addons/suite_play> -ffmpeg <ffmpeg.exe> -host-ip <host-a> -logs <dir>
+    ssh -N -L 18431:127.0.0.1:18431 host-a &
     node spike/driver/run-probes.mjs --cdp 127.0.0.1:19223 --signal http://127.0.0.1:18431 --n 150 --label x --out x.json

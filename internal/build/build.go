@@ -1,5 +1,5 @@
 // Package build turns a play_session_start into a Godot project directory
-// that is exactly the requested commit, safe to run next to Connery's editor.
+// that is exactly the requested commit, safe to run next to the editor agent's editor.
 //
 //  1. A bare mirror per repo (`git clone --mirror`, then `fetch --prune`),
 //     authenticated with a read-only deploy key that lives in a file on the
@@ -8,8 +8,8 @@
 //     The sha is the only ref git is ever given; the branch name core sends
 //     is display text here and never reaches a git argv.
 //  3. ASSERT `git -C <dir> rev-parse HEAD == sha` before anything runs.
-//  4. Copy the suite_play addon in and register it as an autoload; in this
-//     throwaway copy only, remove Voltron's `_mcp_game_helper` autoload and
+//  4. Copy the burrow_play addon in and register it as an autoload; in this
+//     throwaway copy only, remove ExampleGame's `_mcp_game_helper` autoload and
 //     the `godot_ai` editor plugin (see PatchProjectGodot for why both).
 //  5. `godot --headless --import --path <dir>` under a timeout, reporting
 //     progress every 5 s.
@@ -33,7 +33,7 @@ import (
 
 // Repo is one repository the host is allowed to build.
 type Repo struct {
-	// Match is the normalized repo ("github.com/ryanmilvenan/voltron") that
+	// Match is the normalized repo ("github.com/example-owner/example-game") that
 	// core's repo_url must normalize to.
 	Match string `json:"match"`
 	// CloneURL is what git fetches from, e.g. git@github.com:owner/name.git.
@@ -49,7 +49,7 @@ type Config struct {
 	KnownHosts    string
 	MirrorsDir    string
 	CheckoutsDir  string
-	AddonDir      string // source of addons/suite_play
+	AddonDir      string // source of addons/burrow_play (or a legacy suite_play copy)
 	Repos         []Repo
 	KeepCheckouts int // how many old checkouts to keep; 0 = 3
 }
@@ -372,23 +372,55 @@ func (b *Builder) Prune(ctx context.Context, mirror, except string) {
 	_, _ = b.git(ctx, nil, "-C", mirror, "worktree", "prune")
 }
 
-// InstallAddon copies AddonDir to <dir>/addons/suite_play and patches
-// project.godot. It returns what the patch removed, for the host log.
-func (b *Builder) InstallAddon(dir string) ([]string, error) {
-	dst := filepath.Join(dir, "addons", "suite_play")
+// Addon is one addon layout the host can install.
+type Addon struct {
+	Name     string // directory under addons/ and the script's base name
+	Autoload string // the [autoload] line that registers it
+}
+
+var (
+	// BurrowPlay is the current addon (addons/burrow_play/burrow_play.gd).
+	BurrowPlay = Addon{Name: "burrow_play", Autoload: Autoload}
+	// LegacySuitePlay is an addon_dir that still holds the older
+	// suite_play.gd. A host whose addon_dir was not updated alongside this
+	// binary keeps working: the older script is installed under its own name
+	// and still reads the --suite-play-* args the launcher emits.
+	LegacySuitePlay = Addon{Name: "suite_play", Autoload: LegacyAutoload}
+)
+
+// DetectAddon reports which addon script addonDir holds. The current
+// burrow_play.gd wins when both are present.
+func DetectAddon(addonDir string) (Addon, error) {
+	for _, a := range []Addon{BurrowPlay, LegacySuitePlay} {
+		if st, err := os.Stat(filepath.Join(addonDir, a.Name+".gd")); err == nil && !st.IsDir() {
+			return a, nil
+		}
+	}
+	return Addon{}, fmt.Errorf("addon_dir %s holds neither %s.gd nor %s.gd", addonDir, BurrowPlay.Name, LegacySuitePlay.Name)
+}
+
+// InstallAddon copies AddonDir to <dir>/addons/<name> and patches
+// project.godot. It returns the addon it installed and what the patch
+// removed, for the host log.
+func (b *Builder) InstallAddon(dir string) (Addon, []string, error) {
+	addon, err := DetectAddon(b.Cfg.AddonDir)
+	if err != nil {
+		return Addon{}, nil, err
+	}
+	dst := filepath.Join(dir, "addons", addon.Name)
 	if err := os.RemoveAll(dst); err != nil {
-		return nil, err
+		return Addon{}, nil, err
 	}
 	if err := copyTree(b.Cfg.AddonDir, dst); err != nil {
-		return nil, fmt.Errorf("copy addon: %w", err)
+		return Addon{}, nil, fmt.Errorf("copy addon: %w", err)
 	}
 	pg := filepath.Join(dir, "project.godot")
 	src, err := os.ReadFile(pg)
 	if err != nil {
-		return nil, err
+		return Addon{}, nil, err
 	}
-	out, removed := PatchProjectGodot(string(src))
-	return removed, os.WriteFile(pg, []byte(out), 0o644)
+	out, removed := patchProjectGodot(string(src), addon.Autoload)
+	return addon, removed, os.WriteFile(pg, []byte(out), 0o644)
 }
 
 func copyTree(src, dst string) error {
@@ -419,23 +451,30 @@ func copyTree(src, dst string) error {
 }
 
 // Autoload is the line the addon is registered with.
-const Autoload = `SuitePlay="*res://addons/suite_play/suite_play.gd"`
+const Autoload = `BurrowPlay="*res://addons/burrow_play/burrow_play.gd"`
+
+// LegacyAutoload registers an older suite_play.gd copy (see LegacySuitePlay).
+const LegacyAutoload = `SuitePlay="*res://addons/suite_play/suite_play.gd"`
 
 var pluginEntryRe = regexp.MustCompile(`"[^"]*"`)
 
 // PatchProjectGodot edits a project.godot for a played build:
 //
-//   - [autoload]: drop `_mcp_game_helper=` (Voltron's godot_ai game helper,
+//   - [autoload]: drop `_mcp_game_helper=` (ExampleGame's godot_ai game helper,
 //     which answers the editor over the EngineDebugger channel) and add
-//     SuitePlay, replacing any earlier SuitePlay line;
+//     the addon's autoload, replacing any earlier BurrowPlay or SuitePlay line;
 //   - [editor_plugins]: drop every res://addons/godot_ai/ entry. This one
 //     matters for the IMPORT step: `godot --headless --import` runs the
 //     editor, which loads enabled editor plugins, and godot_ai's editor
 //     plugin dials ws://127.0.0.1:9500 (addons/godot_ai/connection.gd:347,
-//     DEFAULT_WS_PORT in client_configurator.gd:41) — Connery's MCP backend.
+//     DEFAULT_WS_PORT in client_configurator.gd:41) — the editor agent's MCP backend.
 //
 // Everything else is left byte-for-byte. It returns the removed lines.
 func PatchProjectGodot(src string) (string, []string) {
+	return patchProjectGodot(src, Autoload)
+}
+
+func patchProjectGodot(src, autoload string) (string, []string) {
 	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
 	var out, removed []string
 	section := ""
@@ -443,14 +482,14 @@ func PatchProjectGodot(src string) (string, []string) {
 	flushAutoload := func() {
 		if section == "autoload" && !added {
 			// Drop the section's trailing blanks, then: header, blank, entries,
-			// SuitePlay, one blank — the layout the editor itself writes.
+			// the addon, one blank — the layout the editor itself writes.
 			for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
 				out = out[:len(out)-1]
 			}
 			if strings.TrimSpace(out[len(out)-1]) == "[autoload]" {
 				out = append(out, "")
 			}
-			out = append(out, Autoload, "")
+			out = append(out, autoload, "")
 			added = true
 		}
 	}
@@ -467,7 +506,7 @@ func PatchProjectGodot(src string) (string, []string) {
 		}
 		switch section {
 		case "autoload":
-			if strings.HasPrefix(t, "_mcp_game_helper=") || strings.HasPrefix(t, "SuitePlay=") {
+			if strings.HasPrefix(t, "_mcp_game_helper=") || strings.HasPrefix(t, "SuitePlay=") || strings.HasPrefix(t, "BurrowPlay=") {
 				if strings.HasPrefix(t, "_mcp_game_helper=") {
 					removed = append(removed, t)
 				}

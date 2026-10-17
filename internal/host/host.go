@@ -2,7 +2,7 @@
 // play_session_* frames (internal/protocol) by building the requested commit
 // (internal/build), launching Godot in a Job Object (internal/launch),
 // streaming it (internal/media, internal/rtc) and feeding the viewer's input
-// to the suite_play addon (internal/input, internal/link).
+// to the burrow_play addon (internal/input, internal/link).
 //
 // One session at a time: a start while one is running answers `failed` with
 // detail "host busy" for the NEW session id and leaves the running one alone.
@@ -82,7 +82,7 @@ type Config struct {
 	// viewer change used to end a live session.
 	OfferAttempts int
 	OfferBackoff  time.Duration
-	// PionLog receives pion's ICE warnings and errors (play-host.log on wave).
+	// PionLog receives pion's ICE warnings and errors (play-host.log on host-a).
 	PionLog io.Writer
 	// ResumeGrace is how long a running session survives a dropped suite
 	// socket (0 = DefaultResumeGrace, negative = end at once, the pre-stage-6
@@ -1381,11 +1381,14 @@ func (r *realStages) Prepare(ctx context.Context, st protocol.SessionStart, prog
 	if err := b.Checkout(ctx, repo, mirror, dir, st.SHA); err != nil {
 		return "", err
 	}
-	removed, err := b.InstallAddon(dir)
+	addon, removed, err := b.InstallAddon(dir)
 	if err != nil {
 		return "", err
 	}
-	r.h.logf("build: %s at %s; addon installed; removed from the throwaway project.godot: %v", dir, st.SHA, removed)
+	if addon == build.LegacySuitePlay {
+		r.h.logf("build: addon_dir holds the older suite_play.gd; installed it under addons/suite_play (deprecated: replace addon_dir with addons/burrow_play)")
+	}
+	r.h.logf("build: %s at %s; addon %s installed; removed from the throwaway project.godot: %v", dir, st.SHA, addon.Name, removed)
 	b.Prune(ctx, mirror, dir)
 	if cfg.SkipImport {
 		return dir, nil

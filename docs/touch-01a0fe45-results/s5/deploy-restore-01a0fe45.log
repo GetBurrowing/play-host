@@ -1,4 +1,0 @@
-2026/10/02 22:27:34.555729 play-host f3eaa22e205d0acb36d4268ac129d1980def6f51 serve: runtime play-host-wave-dev-01a0fe45 via ws://192.168.1.200:4034/runtime/ws
-2026/10/02 22:27:34.555729 play-host: dev config: log_touch=true features=[]
-2026/10/02 22:27:34.769226 suite: joined runtime:play-host-wave-dev-01a0fe45 as play-host
-2026/10/02 22:27:34.769226 host: joined; ready for play_session_start

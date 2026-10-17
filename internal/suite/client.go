@@ -92,7 +92,7 @@ type Config struct {
 // caps play_signal data at 64 KiB) go out as a single websocket frame. It
 // is tidiness, NOT the fix for task 01a0dbd6 stage 6's broken sockets:
 // fragmented messages are legal and Bandit reassembled all 150 captured on
-// one socket. Those breaks were bytes corrupted between moon's NIC and the
+// one socket. Those breaks were bytes corrupted between host-b's NIC and the
 // dev core container, by podman's rootlessport; the 64 KiB buffer does not
 // prevent that (docs/multiplayer-01a0dbd6.md, "Stage 6").
 const DefaultWriteBufferSize = 64 << 10

@@ -1,5 +1,5 @@
 // Package probe implements the input-to-photon latency probe shared by the
-// play host, the Godot addon (addons/suite_play) and the browser harness.
+// play host, the Godot addon (addons/burrow_play) and the browser harness.
 //
 // A probe is an input event carrying a sequence number. The Godot addon draws
 // that number in the top-left corner of the frame for two frames as a 4x4
@@ -11,7 +11,7 @@
 // seq<<4 | Check(seq), with seq in 1..4095. A white cell is a 1. An all-black
 // corner is the idle state and never decodes, because Check(0) != 0.
 //
-// The same constants are duplicated in addons/suite_play/suite_play.gd and
+// The same constants are duplicated in addons/burrow_play/burrow_play.gd and
 // spike/web/probe.js; code_test.go pins the wire values those copies must match.
 package probe
 

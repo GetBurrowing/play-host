@@ -158,7 +158,7 @@ func (h *harness) startGodot() error {
 	o := h.o
 	w, ht := o.Preset.Width, o.Preset.Height
 	args := launch.GodotArgsForDriver(o.Project, o.RenderingDriver, w, ht, o.Session, o.GodotPort, o.Preset.FPS)
-	args = append(args, "--suite-play-export="+exportMode(o))
+	args = append(args, launch.AddonArg("export", exportMode(o))...)
 	p, err := launch.Start(launch.Spec{Path: launch.HostGodotExecutable(o.Godot), Args: args, Dir: o.Project, LogPath: filepath.Join(o.LogDir, "godot-"+o.Session+".log")})
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func (h *harness) startEncoder() error {
 	case "B":
 		// The scene sets the window title in its _ready, after the addon link is up.
 		time.Sleep(3 * time.Second)
-		input = media.GDIGrabInputArgs("suite-play-spike-01a0db5f", o.Preset.FPS)
+		input = media.GDIGrabInputArgs("burrow-play-spike-01a0db5f", o.Preset.FPS)
 	case "C":
 		// Size comes from the first frame the addon exports.
 		hdr, err := ReadFrameHeader(h.link)

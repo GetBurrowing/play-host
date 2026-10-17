@@ -9,11 +9,13 @@ import (
 )
 
 // ImportArgs is the headless import command line. The user args after "--"
-// carry the session marker so connery-godot-loop.ps1 never reads the import
+// carry the session marker so editor-godot-loop.ps1 never reads the import
 // as a GUI editor (it would already skip it for --headless; the marker makes
-// the reason explicit and survives a loop edit).
+// the reason explicit and survives a loop edit). The marker is emitted in
+// both spellings: that loop script lives on the play machine, knows only
+// --suite-play-session=, and is not updated by deploying this binary.
 func ImportArgs(dir, sessionID string) []string {
-	return []string{"--headless", "--import", "--path", dir, "--", "--suite-play-session=" + sessionID}
+	return append([]string{"--headless", "--import", "--path", dir, "--"}, launch.AddonArg("session", sessionID)...)
 }
 
 // Import runs `godot --headless --import` in its own Job Object, calling

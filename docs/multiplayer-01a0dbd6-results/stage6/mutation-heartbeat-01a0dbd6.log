@@ -1,9 +1,0 @@
-    client_test.go:327: a healthy socket was dropped after a late heartbeat write: heartbeat reply missed (0s after the beat)
---- FAIL: TestALateHeartbeatWriteIsNotAMissedReply (0.20s)
-    client_test.go:327: a healthy socket was dropped after a late heartbeat write: heartbeat reply missed (0s after the beat)
---- FAIL: TestALateHeartbeatWriteIsNotAMissedReply (0.20s)
-    client_test.go:327: a healthy socket was dropped after a late heartbeat write: heartbeat reply missed (0s after the beat)
---- FAIL: TestALateHeartbeatWriteIsNotAMissedReply (0.20s)
-FAIL
-FAIL	github.com/Startup-Suite/play-host/internal/suite	0.615s
-FAIL
