@@ -31,11 +31,23 @@ in this file, in a commit message, or in a comment.
 
 Excluded from the scan: go.sum, LICENSE, NOTICE, and any file that is not
 UTF-8 text.
+
+SECOND PASS (product name). TEMPORARY RENAME GUARD, for Burrow rename task F
+(01a14ccb): delete this pass (everything under "Second pass" below and its
+call in main) once Burrow release task E (01a14ba0) has finished. The first
+pass above is NOT temporary. The second pass walks the tree directly (no git
+ls-files) and asserts a minimum file count. Per line it strips the GitHub
+owner literal and the GHCR owner path, drops allowlisted substrings
+(PRODUCT_ALLOWLIST), then fails on the old product name as a capitalised
+whole word, the old two-word name in any case, or the two mixed forms that
+pair the new name with a word from the old one. A stale allowlist entry
+fails. NOTICE is scanned by this pass, not excluded.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -147,6 +159,71 @@ def scan(root: Path) -> list[str]:
     return hits
 
 
+# --- Second pass: product name (TEMPORARY, see module docstring) -----------
+
+_OLD = "Su" + "ite"
+_NEW = "Bur" + "row"
+PRODUCT_OWNER_RE = re.compile(r"Startup-" + _OLD + r"|ghcr\.io/startup-" + _OLD.lower())
+PRODUCT_FORBIDDEN = [
+    re.compile(r"\b" + _OLD + r"\b"),
+    re.compile(r"(?i)\bstartup\s+" + _OLD.lower() + r"\b"),
+    re.compile(r"\bStartup\s+" + _NEW + r"\b"),
+    re.compile(r"\b" + _NEW + r"\s+" + _OLD + r"\b"),
+]
+# {path, exact substring, reason}
+PRODUCT_ALLOWLIST = [
+    {
+        "path": "NOTICE",
+        "substring": "Copyright 2026 Startup " + _OLD,
+        "reason": "copyright owner is the legal entity; it changes with task E",
+    },
+]
+PRODUCT_MIN_FILES = 60
+PRODUCT_EXCLUDED_DIRS = {".git", ".venv", "node_modules", "__pycache__"}
+
+
+def product_files(root: Path) -> list[tuple[str, str]]:
+    """(relative path, text) for every UTF-8 file under root, walked directly."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in PRODUCT_EXCLUDED_DIRS)
+        for fn in sorted(filenames):
+            full = Path(dirpath) / fn
+            if fn == "go.sum" or not full.is_file():
+                continue
+            data = full.read_bytes()
+            if b"\0" in data:
+                continue
+            try:
+                out.append((full.relative_to(root).as_posix(), data.decode("utf-8")))
+            except UnicodeDecodeError:
+                continue
+    return out
+
+
+def product_scan(root: Path, allowlist=None, min_files: int = PRODUCT_MIN_FILES) -> list[str]:
+    allowlist = PRODUCT_ALLOWLIST if allowlist is None else allowlist
+    files = product_files(root)
+    errors: list[str] = []
+    if len(files) < min_files:
+        errors.append(f"product-name: scanned only {len(files)} files, expected at least {min_files}")
+    used = [False] * len(allowlist)
+    for rel, text in files:
+        entries = [(i, e) for i, e in enumerate(allowlist) if e["path"] == rel]
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = PRODUCT_OWNER_RE.sub("", line)
+            for i, e in entries:
+                if e["substring"] in stripped:
+                    used[i] = True
+                    stripped = stripped.replace(e["substring"], "")
+            if any(p.search(stripped) for p in PRODUCT_FORBIDDEN):
+                errors.append(f"{rel}:{lineno}: {line.strip()}")
+    for i, e in enumerate(allowlist):
+        if not used[i]:
+            errors.append(f"stale allowlist entry: {e['path']}: {e['substring']!r} no longer matches ({e['reason']})")
+    return errors
+
+
 def main(argv: list[str]) -> int:
     root = Path(argv[1]) if len(argv) > 1 else Path.cwd()
     root = Path(
@@ -165,10 +242,16 @@ def main(argv: list[str]) -> int:
     hits = scan(root)
     for hit in hits:
         print(hit)
-    if hits:
-        print(f"scrub-check: {len(hits)} hit(s)", file=sys.stderr)
+    product_errors = product_scan(root)
+    for err in product_errors:
+        print(err)
+    if hits or product_errors:
+        print(
+            f"scrub-check: {len(hits)} hit(s), {len(product_errors)} product-name problem(s)",
+            file=sys.stderr,
+        )
         return 1
-    print(f"scrub-check: OK ({len(files)} tracked files)")
+    print(f"scrub-check: OK ({len(files)} tracked files; product-name pass {len(product_files(root))} files)")
     return 0
 
 

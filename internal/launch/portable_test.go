@@ -47,7 +47,7 @@ func TestGodotArgsOmitsEmptyRenderingDriver(t *testing.T) {
 }
 
 func TestGodotArgsForDriverPreservesPathElement(t *testing.T) {
-	dir := "/Users/Shared/Suite Projects/game one"
+	dir := "/Users/Shared/Burrow Projects/game one"
 	got := GodotArgsForDriver(dir, "metal", 1920, 1080, "mac-session", 40320, 60)
 	wantPrefix := []string{"--path", dir, "--rendering-driver", "metal", "--resolution", "1920x1080", "--windowed"}
 	if !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
