@@ -1,7 +1,7 @@
-// Multi-viewer input-to-photon driver for a Suite game_stream canvas (task
+// Multi-viewer input-to-photon driver for a Burrow game_stream canvas (task
 // 01a0dbd6 stage 5). One headless Chrome browser context per viewer, so each
 // viewer is its own LiveView and its own RTCPeerConnection. Players join
-// their own slot, capture input and keep the Suite hook's latency probes
+// their own slot, capture input and keep the Burrow hook's latency probes
 // running; spectators only watch. The driver reads the hook's RAW probe
 // samples (every sample, not only its 60-sample rolling window).
 //

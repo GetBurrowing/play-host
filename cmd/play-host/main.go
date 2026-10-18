@@ -1,6 +1,6 @@
 // Command play-host serves a Godot build to one browser over WebRTC.
 //
-//	play-host serve -config /path/to/config.json   (the Suite play host)
+//	play-host serve -config /path/to/config.json   (the Burrow play host)
 //	play-host spike [flags]                        (the frame-path harness)
 package main
 
