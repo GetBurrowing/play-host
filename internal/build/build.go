@@ -533,7 +533,7 @@ func patchProjectGodot(src, autoload string) (string, []string) {
 		for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
 			out = out[:len(out)-1]
 		}
-		out = append(out, "", "[autoload]", "", Autoload, "")
+		out = append(out, "", "[autoload]", "", autoload, "")
 	}
 	return strings.Join(out, "\n"), removed
 }

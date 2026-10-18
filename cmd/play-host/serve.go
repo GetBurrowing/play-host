@@ -110,6 +110,13 @@ func LoadConfig(path string) (FileConfig, error) {
 	if len(c.Repos) == 0 {
 		return c, fmt.Errorf("%s: repos is empty; the host would refuse every session", path)
 	}
+	for i, r := range c.Repos {
+		// MirrorDir and FindRepo both need host/owner/name; a match without it
+		// would panic the startup sweep or silently never match.
+		if _, err := build.NormalizeRepo(r.Match); err != nil {
+			return c, fmt.Errorf("%s: repos[%d].match: %w", path, i, err)
+		}
+	}
 	return c, nil
 }
 

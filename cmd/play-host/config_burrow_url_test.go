@@ -31,7 +31,7 @@ func writeRawConfig(t *testing.T, body string) string {
 }
 
 const urlTestRest = `"runtime_id":"r","token_file":"t","godot":"g","ffmpeg":"f","git":"git",
-	"mirrors_dir":"m","checkouts_dir":"c","addon_dir":"a","logs_dir":"l","repos":[{"match":"x","clone_url":"y"}]`
+	"mirrors_dir":"m","checkouts_dir":"c","addon_dir":"a","logs_dir":"l","repos":[{"match":"github.com/example/x","clone_url":"y"}]`
 
 func TestBurrowURLOnly(t *testing.T) {
 	var c FileConfig

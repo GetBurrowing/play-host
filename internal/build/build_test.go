@@ -376,3 +376,35 @@ func TestInstallAddonLegacyCopy(t *testing.T) {
 		t.Fatalf("project.godot:\n%s", pg)
 	}
 }
+
+// With no [autoload] section the section is created, and it must register
+// the addon that was installed, not always the current one.
+func TestInstallAddonCreatesAutoloadSectionForEitherAddon(t *testing.T) {
+	for _, tc := range []struct {
+		script string
+		want   Addon
+	}{
+		{"suite_play.gd", LegacySuitePlay},
+		{"burrow_play.gd", BurrowPlay},
+	} {
+		root := t.TempDir()
+		addon := filepath.Join(root, "addon")
+		os.MkdirAll(addon, 0o755)
+		os.WriteFile(filepath.Join(addon, tc.script), []byte("extends Node\n"), 0o644)
+		dir := filepath.Join(root, "co")
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "project.godot"), []byte("config_version=5\n\n[application]\n\nconfig/name=\"x\"\n"), 0o644)
+		b := &Builder{Cfg: Config{AddonDir: addon}}
+		installed, _, err := b.InstallAddon(dir)
+		if err != nil || installed != tc.want {
+			t.Fatal(tc.script, installed, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "addons", tc.want.Name, tc.script)); err != nil {
+			t.Fatal(err)
+		}
+		pg, _ := os.ReadFile(filepath.Join(dir, "project.godot"))
+		if strings.Count(string(pg), "Play=") != 1 || !strings.HasSuffix(string(pg), "[autoload]\n\n"+tc.want.Autoload+"\n") {
+			t.Fatalf("%s: project.godot:\n%s", tc.script, pg)
+		}
+	}
+}
