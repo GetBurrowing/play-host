@@ -210,7 +210,7 @@ These stage 5 rig pieces were removed at the end of this stage:
 
 - `rig/run-01a0fe45.sh <label> <scenario> <vp> <canvas>`: prod check, driver, host-log slice, per-step line table.
 - Scenarios are `taps`, `fullscreen`, `rotate`, `spectator`, `keypad` and `notouch`.
-- Driver: `node rig/touch-01a0fe45.mjs --cdp 127.0.0.1:9245 --app http://<host-b>:4034 --canvas <uuid> --scenario taps --vp landscape --label x --out <dir>`. CDP is reached with `ssh -L 9245:127.0.0.1:9245 user@host-b.local`.
+- Driver: `node rig/touch-01a0fe45.mjs --cdp 127.0.0.1:9245 --app http://<host-b>:4034 --canvas <uuid> --scenario taps --vp landscape --label x --out <dir>`. CDP is reached with `ssh -L 9245:127.0.0.1:9245 user@host-b.example`.
 - Chrome on host-b: `podman run -d --name chrome-01a0fe45-s5 --network host --shm-size 2g --entrypoint /usr/bin/google-chrome docker.io/selenium/standalone-chrome --headless=new --no-sandbox --remote-debugging-port=9245 --remote-debugging-address=127.0.0.1 …`.
 - Session control: `rig/rpc-01a0fe45.sh fixture|token|hosts|start|canvas|report|stop|row`, evaluating `rig/rig-01a0fe45.exs` in the dev BEAM. The `token` mode prints a secret: pipe it straight to the host-a file and never to a log.
 - Host-a: `rig/host-a/deploy-01a0fe45.ps1 -Sha <sha> [-NoTouch]` and `rig/host-a/prodcheck-01a0fe45.ps1 [-Dir <instance>]`.

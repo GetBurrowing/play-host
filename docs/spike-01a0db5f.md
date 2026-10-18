@@ -167,7 +167,7 @@ poll wait, which is the larger share.
      never decode this stream.
    - What worked:
      `podman run -d --name <tag>-chrome --network host --shm-size 2g --entrypoint /usr/bin/google-chrome docker.io/selenium/standalone-chrome --headless=new --no-sandbox --remote-debugging-port=9223 --user-data-dir=/tmp/<tag> --autoplay-policy=no-user-gesture-required about:blank`
-   - It binds 127.0.0.1 only, so reach it with `ssh -L 19223:127.0.0.1:9223 user@host-b.local`.
+   - It binds 127.0.0.1 only, so reach it with `ssh -L 19223:127.0.0.1:9223 user@host-b.example`.
    - This also affects stage 6's e2e setup, which says "headless Chrome on host-b".
 6. **The Job Object works.**
    - Godot is created suspended, assigned to the job, then resumed (`internal/launch`).

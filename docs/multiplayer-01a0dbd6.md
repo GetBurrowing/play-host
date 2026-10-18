@@ -328,4 +328,4 @@ node spike/driver/run-probes-multi.mjs --cdp 127.0.0.1:9223 --app http://<host-b
 
 Chrome on host-b is Google Chrome, not headless-shell (spike 01a0db5f item 5):
 `podman run -d --name chrome-01a0dbd6-s5 --network host --shm-size 2g --entrypoint /usr/bin/google-chrome docker.io/selenium/standalone-chrome --headless=new --no-sandbox --remote-debugging-port=9223 ...`,
-reached with `ssh -L 9223:127.0.0.1:9223 user@host-b.local`.
+reached with `ssh -L 9223:127.0.0.1:9223 user@host-b.example`.
