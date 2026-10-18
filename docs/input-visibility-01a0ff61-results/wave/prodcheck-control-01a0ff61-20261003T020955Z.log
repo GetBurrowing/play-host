@@ -1,2 +1,0 @@
-PROD_BUSY=True dir=C:\Users\slaps\play-host-01a0ff61-scratch\ctl children=0 prod_udp_binds=0 last=[2026/10/03 00:00:01.000000 [ctl-01a0ff61] offer from peer p1]
-PROD_BUSY=False dir=C:\Users\slaps\play-host-01a0ff61-scratch\ctl children=0 prod_udp_binds=0 last=[2026/10/03 00:00:03.000000 [ctl-01a0ff61] session ended: control]

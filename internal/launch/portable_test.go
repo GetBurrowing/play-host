@@ -54,7 +54,7 @@ func TestGodotArgsForDriverPreservesPathElement(t *testing.T) {
 		t.Fatalf("args prefix = %#v", got)
 	}
 	joined := strings.Join(got, " ")
-	for _, marker := range []string{"-- --suite-play-session=mac-session", "--suite-play-port=40320", "--suite-play-fps=60"} {
+	for _, marker := range []string{"-- --burrow-play-session=mac-session", "--burrow-play-port=40320", "--burrow-play-fps=60", "--suite-play-session=mac-session"} {
 		if !strings.Contains(joined, marker) {
 			t.Errorf("missing %q in %q", marker, joined)
 		}

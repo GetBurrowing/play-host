@@ -9,7 +9,7 @@ import (
 	"github.com/Startup-Suite/play-host/internal/probe"
 )
 
-// Record kinds and fixed PCM v1 format written by addons/suite_play.
+// Record kinds and fixed PCM v1 format written by addons/burrow_play.
 const (
 	KindImageRGBA8 = 1 // get_viewport().get_texture().get_image()
 	KindRDTexture  = 2 // RenderingDevice.texture_get_data_async

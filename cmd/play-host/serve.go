@@ -28,8 +28,12 @@ var Version = "dev"
 
 // FileConfig is the platform-neutral on-disk host configuration.
 type FileConfig struct {
-	SuiteURL        string            `json:"suite_url"`  // ws(s)://host[:port]/runtime/ws
-	RuntimeID       string            `json:"runtime_id"` // play-host-wave
+	BurrowURL string `json:"burrow_url"` // ws(s)://host[:port]/runtime/ws
+	// SuiteURL is the deprecated name of burrow_url. A config.json that
+	// still has only suite_url loads unchanged; burrow_url wins when both
+	// are set.
+	SuiteURL        string            `json:"suite_url,omitempty"`
+	RuntimeID       string            `json:"runtime_id"` // play-host-a
 	TokenFile       string            `json:"token_file"` // secrets\runtime-token (file only)
 	Godot           string            `json:"godot"`      // executable, PATH name, or macOS .app bundle
 	RenderingDriver string            `json:"rendering_driver"`
@@ -74,6 +78,7 @@ func LoadConfig(path string) (FileConfig, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
 	}
+	resolveBurrowURL(&c, path)
 	if c.Encoder == "" {
 		c.Encoder = media.EncoderAuto
 	}
@@ -95,7 +100,7 @@ func LoadConfig(path string) (FileConfig, error) {
 	if c.AudioRTPPort == 0 {
 		c.AudioRTPPort = c.RTPPort + 1
 	}
-	for name, v := range map[string]string{"suite_url": c.SuiteURL, "runtime_id": c.RuntimeID, "token_file": c.TokenFile,
+	for name, v := range map[string]string{"burrow_url": c.BurrowURL, "runtime_id": c.RuntimeID, "token_file": c.TokenFile,
 		"godot": c.Godot, "ffmpeg": c.FFmpeg, "git": c.Git, "mirrors_dir": c.MirrorsDir, "checkouts_dir": c.CheckoutsDir,
 		"addon_dir": c.AddonDir, "logs_dir": c.LogsDir} {
 		if v == "" {
@@ -105,7 +110,28 @@ func LoadConfig(path string) (FileConfig, error) {
 	if len(c.Repos) == 0 {
 		return c, fmt.Errorf("%s: repos is empty; the host would refuse every session", path)
 	}
+	for i, r := range c.Repos {
+		// MirrorDir and FindRepo both need host/owner/name; a match without it
+		// would panic the startup sweep or silently never match.
+		if _, err := build.NormalizeRepo(r.Match); err != nil {
+			return c, fmt.Errorf("%s: repos[%d].match: %w", path, i, err)
+		}
+	}
 	return c, nil
+}
+
+// resolveBurrowURL applies the suite_url fallback: suite_url alone fills
+// burrow_url with one deprecation line; both set and different, burrow_url
+// wins and the ignored value is logged once.
+func resolveBurrowURL(c *FileConfig, path string) {
+	switch {
+	case c.SuiteURL == "":
+	case c.BurrowURL == "":
+		c.BurrowURL = c.SuiteURL
+		log.Printf("config %s: suite_url is deprecated; rename it to burrow_url", path)
+	case c.BurrowURL != c.SuiteURL:
+		log.Printf("config %s: burrow_url and suite_url differ; using burrow_url, ignoring suite_url", path)
+	}
 }
 
 func selectEncoderForOS(requested media.EncoderKind, goos string) media.EncoderKind {
@@ -183,7 +209,7 @@ func serve(args []string) error {
 	}
 	defer lf.Close()
 	defer logPanic()
-	log.Printf("play-host %s serve: runtime %s via %s", Version, c.RuntimeID, c.SuiteURL)
+	log.Printf("play-host %s serve: runtime %s via %s", Version, c.RuntimeID, c.BurrowURL)
 	if c.LogTouch || c.Features != nil {
 		log.Printf("play-host: dev config: log_touch=%v features=%v", c.LogTouch, c.Features)
 	}
@@ -194,7 +220,7 @@ func serve(args []string) error {
 	sweepCtx, sweepDone := context.WithTimeout(context.Background(), 2*time.Minute)
 	h.SweepCheckouts(sweepCtx)
 	sweepDone()
-	cl := suite.New(suite.Config{URL: c.SuiteURL, RuntimeID: c.RuntimeID, TokenFile: c.TokenFile, Product: "play-host",
+	cl := suite.New(suite.Config{URL: c.BurrowURL, RuntimeID: c.RuntimeID, TokenFile: c.TokenFile, Product: "play-host",
 		Version: Version, Heartbeat: time.Duration(c.HeartbeatS) * time.Second, Features: c.Features}, h)
 	h.SetSender(cl)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

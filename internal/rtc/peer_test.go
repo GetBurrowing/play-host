@@ -117,8 +117,8 @@ func TestGatherTimeoutStillOffersHostCandidates(t *testing.T) {
 }
 
 func TestCountCandidates(t *testing.T) {
-	sdp := "v=0\r\na=candidate:1 1 udp 2130706431 192.168.1.107 40300 typ host\r\n" +
-		"a=candidate:2 1 udp 16777215 107.143.179.17 40001 typ relay raddr 0.0.0.0 rport 5\r\n" +
+	sdp := "v=0\r\na=candidate:1 1 udp 2130706431 <host-a> 40300 typ host\r\n" +
+		"a=candidate:2 1 udp 16777215 203.0.113.17 40001 typ relay raddr 0.0.0.0 rport 5\r\n" +
 		"a=candidate:3 1 udp 2130706431 127.0.0.1 40301 typ host\r\n"
 	got := CountCandidates(sdp)
 	if got["host"] != 2 || got["relay"] != 1 || got["srflx"] != 0 {

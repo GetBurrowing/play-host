@@ -18,7 +18,7 @@ Build and stage the host:
 ```sh
 cd /path/to/play-host
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o play-host ./cmd/play-host
-sudo install -d -o "$USER" -g staff /Users/Shared/play-host/{bin,logs,mirrors,checkouts,suite_play,secrets}
+sudo install -d -o "$USER" -g staff /Users/Shared/play-host/{bin,logs,mirrors,checkouts,burrow_play,secrets}
 install -m 0755 play-host /Users/Shared/play-host/bin/play-host
 ```
 
@@ -30,8 +30,8 @@ Save this as `/Users/Shared/play-host/config.json` and put only the runtime toke
 
 ```json
 {
-  "suite_url": "wss://suite.example/runtime/ws",
-  "runtime_id": "play-host-rock",
+  "burrow_url": "wss://burrow.example/runtime/ws",
+  "runtime_id": "play-host-mac",
   "token_file": "/Users/Shared/play-host/secrets/runtime-token",
   "godot": "/Applications/Godot.app",
   "rendering_driver": "",
@@ -43,7 +43,7 @@ Save this as `/Users/Shared/play-host/config.json` and put only the runtime toke
   "known_hosts": "/Users/Shared/play-host/known_hosts",
   "mirrors_dir": "/Users/Shared/play-host/mirrors",
   "checkouts_dir": "/Users/Shared/play-host/checkouts",
-  "addon_dir": "/Users/Shared/play-host/suite_play",
+  "addon_dir": "/Users/Shared/play-host/burrow_play",
   "logs_dir": "/Users/Shared/play-host/logs",
   "host_ip": "",
   "udp_min": 40300,
@@ -66,6 +66,8 @@ Save this as `/Users/Shared/play-host/config.json` and put only the runtime toke
 - `encoder_fallback: true` probes the selected encoder when streaming begins and uses libx264 only if initialization fails.
 - Keep `rendering_driver` empty on macOS so Godot chooses its native default. Windows continues to default to Vulkan.
 - Paths are native argv values. Do not add shell quoting inside JSON.
+- `burrow_url` was called `suite_url` before the Burrow rename. A config with only `suite_url` still loads, with one deprecation line in the log; when both are set, `burrow_url` wins.
+- `addon_dir` holds `burrow_play.gd` (copy `addons/burrow_play` from this repository). A directory that still holds the older `suite_play.gd` keeps working and is installed under its old name.
 
 ## LaunchAgent
 

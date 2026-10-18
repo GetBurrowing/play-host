@@ -294,7 +294,7 @@ const sha = "0123456789abcdef0123456789abcdef01234567"
 
 func startPayload(id string, idle int) json.RawMessage {
 	b, _ := json.Marshal(map[string]any{
-		"session_id": id, "task_id": "01a0db5f-4f1a-7001-87a3-e777ad1cab82", "repo_url": "https://github.com/ryanmilvenan/voltron",
+		"session_id": id, "task_id": "01a0db5f-4f1a-7001-87a3-e777ad1cab82", "repo_url": "https://github.com/example-owner/example-game",
 		"branch": "task/x", "sha": sha, "ice_servers": []any{}, "idle_timeout_s": idle,
 		"encoder": map[string]any{"preset": "p1", "tune": "ll", "bitrate_kbps": 8000, "fps": 60, "width": 1280, "height": 720, "gop_frames": 120},
 	})
@@ -308,7 +308,7 @@ func newTestHost(t *testing.T, port int, stages *fakeStages) (*Host, *core) {
 // muxPort is the one UDP port a test session's peers share (task 01a0dbd6:
 // rtc.NewMuxAPI). It sits below 32768, outside Linux's ephemeral range, so
 // no pion answerer or fake-ffmpeg socket can already hold it (measured on
-// moon: 40366 was taken by an ephemeral socket), and is unique per test port.
+// host-b: 40366 was taken by an ephemeral socket), and is unique per test port.
 func muxPort(port int) int { return port - 9000 }
 
 // newTestHostLog is newTestHost with the host's log sent to logf.

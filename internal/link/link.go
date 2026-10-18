@@ -1,5 +1,5 @@
 // Package link is the 127.0.0.1 TCP connection between the play host and the
-// suite_play addon inside Godot. Host -> game is newline-delimited JSON (see
+// burrow_play addon inside Godot. Host -> game is newline-delimited JSON (see
 // internal/input); game -> host multiplexes SPF1 video and SPA1 game PCM.
 package link
 

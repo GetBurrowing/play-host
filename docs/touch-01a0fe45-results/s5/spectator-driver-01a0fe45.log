@@ -1,7 +1,0 @@
-[3.6s] p1:join {"state":{"state":"live","frames":9,"videoWidth":324,"videoHeight":720,"videoRect":{"left":43.078125,"top":182,"width":303.828125,"height":675.171875},"content":{"left":43.078515624999994,"top":182,"width":303.82734375,"height":675.171875},"touchAttr":"on","tall":true,"touchAction":"none","join":fal
-[7.7s] s:open {"state":{"state":"live","frames":18,"videoWidth":324,"videoHeight":720,"videoRect":{"left":43.078125,"top":182,"width":303.828125,"height":675.171875},"content":{"left":43.078515624999994,"top":182,"width":303.82734375,"height":675.171875},"touchAttr":null,"tall":true,"touchAction":"auto","join":tr
-[13.2s] s:taps-and-drag {"urls":["http://192.168.1.200:4034/canvases/01a0fea6-6d82-7001-bc27-008bc4d88a4e","http://192.168.1.200:4034/canvases/01a0fea6-6d82-7001-bc27-008bc4d88a4e","http://192.168.1.200:4034/canvases/01a0fea6-6d82-7001-bc27-008bc4d88a4e","http://192.168.1.200:4034/canvases/01a0fea6-6d82-7001-bc27-008bc4d88
-[13.2s] s:channels {"ch":["input-state:open","input-events:open"],"pc":"connected","state":{"state":"live","frames":345,"videoWidth":324,"videoHeight":720,"videoRect":{"left":43.078125,"top":-103,"width":303.828125,"height":675.171875},"content":{"left":43.078515624999994,"top":-103,"width":303.82734375,"height":675.1
-[13.2s] s:forge {"forged":{"sent":true,"at":1790979920718},"forged2":{"sent":true,"at":1790979920719}}
-[14.3s] p1:positive-control-tap {"client":{"x":97.1597828125,"y":274.498546875},"p1_sends":2}
-[15.4s] p1:unpause {}

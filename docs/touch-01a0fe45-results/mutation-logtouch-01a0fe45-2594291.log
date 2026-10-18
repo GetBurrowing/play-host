@@ -1,5 +1,0 @@
---- FAIL: TestLogTouchLogsEverySentTouchLine (0.58s)
-        host_multi_test.go:506: touch line logs = 3, want 0
-FAIL
-FAIL	github.com/Startup-Suite/play-host/internal/host	0.584s
-FAIL

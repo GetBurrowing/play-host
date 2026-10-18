@@ -64,5 +64,36 @@ func GodotArgsForDriver(dir, driver string, w, h int, session string, port, fps 
 		a = append(a, "--rendering-driver", driver)
 	}
 	a = append(a, "--resolution", fmt.Sprintf("%dx%d", w, h), "--windowed")
-	return append(a, "--", "--suite-play-session="+session, fmt.Sprintf("--suite-play-port=%d", port), fmt.Sprintf("--suite-play-fps=%d", fps))
+	a = append(a, "--")
+	return append(a, AddonArgs(session, port, fps)...)
+}
+
+// AddonArgPrefix is the prefix of the user args the burrow_play addon reads.
+const AddonArgPrefix = "--burrow-play-"
+
+// LegacyAddonArgPrefix is the prefix older addon copies read. It is still
+// emitted after the new args, for two readers this binary cannot update: an
+// addon_dir that still holds an older addon copy (it parses only this
+// prefix), and the editor-loop script on a play machine that recognises a
+// played Godot by its "--suite-play-session=" marker. The current addon
+// parses both and prefers the new prefix.
+const LegacyAddonArgPrefix = "--suite-play-"
+
+// AddonArg is one addon user arg in both spellings, new prefix first.
+func AddonArg(name, value string) []string {
+	return []string{AddonArgPrefix + name + "=" + value, LegacyAddonArgPrefix + name + "=" + value}
+}
+
+// AddonArgs is the session, port and fps user args the addon needs: every
+// --burrow-play-* arg first, then the same args with the legacy prefix.
+func AddonArgs(session string, port, fps int) []string {
+	names := []string{"session", "port", "fps"}
+	values := []string{session, fmt.Sprint(port), fmt.Sprint(fps)}
+	var out []string
+	for _, prefix := range []string{AddonArgPrefix, LegacyAddonArgPrefix} {
+		for i, n := range names {
+			out = append(out, prefix+n+"="+values[i])
+		}
+	}
+	return out
 }

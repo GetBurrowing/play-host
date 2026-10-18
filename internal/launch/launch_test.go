@@ -147,7 +147,7 @@ func TestKillAfterWaitNeverSignalsRetiredGroup(t *testing.T) {
 func TestGodotArgsCarryMarkerAfterDoubleDash(t *testing.T) {
 	a := GodotArgsForDriver(`C:\co\01a0db5f-0123456789ab`, "vulkan", 1280, 720, "sess-1", 40320, 60)
 	got := strings.Join(a, " ")
-	want := `--path C:\co\01a0db5f-0123456789ab --rendering-driver vulkan --resolution 1280x720 --windowed -- --suite-play-session=sess-1 --suite-play-port=40320 --suite-play-fps=60`
+	want := `--path C:\co\01a0db5f-0123456789ab --rendering-driver vulkan --resolution 1280x720 --windowed -- --burrow-play-session=sess-1 --burrow-play-port=40320 --burrow-play-fps=60 --suite-play-session=sess-1 --suite-play-port=40320 --suite-play-fps=60`
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
@@ -157,5 +157,22 @@ func TestGodotArgsCarryMarkerAfterDoubleDash(t *testing.T) {
 				t.Fatalf("%s in play args", bad)
 			}
 		}
+	}
+}
+
+// The new prefix comes first and every legacy arg follows it: an older addon
+// copy reads only --suite-play-*, and the play machine's editor loop knows a
+// played Godot by its --suite-play-session= marker.
+func TestAddonArgsEmitBurrowPrefixThenLegacy(t *testing.T) {
+	got := AddonArgs("s1", 40320, 30)
+	want := []string{
+		"--burrow-play-session=s1", "--burrow-play-port=40320", "--burrow-play-fps=30",
+		"--suite-play-session=s1", "--suite-play-port=40320", "--suite-play-fps=30",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("got  %v\nwant %v", got, want)
+	}
+	if a := AddonArg("export", "image"); strings.Join(a, " ") != "--burrow-play-export=image --suite-play-export=image" {
+		t.Fatalf("AddonArg = %v", a)
 	}
 }

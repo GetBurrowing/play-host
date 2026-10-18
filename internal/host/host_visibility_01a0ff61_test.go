@@ -17,8 +17,8 @@ import (
 // type arrive, did one arrive that did not parse, and what did the peer send
 // in total. None of them carries a value from a message.
 
-// waveIdle is the wave idle-check regex (docs/touch-01a0fe45-results/rig/
-// wave/prodcheck-01a0fe45.ps1): a new line matching it would make the idle
+// waveIdle is the host-a idle-check regex (docs/touch-01a0fe45-results/rig/
+// host-a/prodcheck-01a0fe45.ps1): a new line matching it would make the idle
 // check read the box as busy.
 var waveIdle = regexp.MustCompile(`\] (status |session ended|offer|viewer)`)
 
@@ -62,7 +62,7 @@ func checkNotIdleRegex(t *testing.T, lr *logRec) {
 	}
 	for _, l := range lines {
 		if waveIdle.MatchString(l) {
-			t.Errorf("a new line matches the wave idle-check regex: %s", l)
+			t.Errorf("a new line matches the host-a idle-check regex: %s", l)
 		}
 	}
 	// Positive control: the regex does fire on a line it exists to catch.

@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless self-test for addons/suite_play (task 01a0db5f stage 3; two
+## Headless self-test for addons/burrow_play (task 01a0db5f stage 3; two
 ## player slots added by task 01a0dbd6 stage 3). Run on a
 ## Godot 4.7 install from a scratch project holding the addon:
 ##   godot --headless --path <dir> --script res://selftest.gd -- --keynames=<keynames.json>
@@ -14,6 +14,20 @@ extends SceneTree
 var failures: Array[String] = []
 
 
+## The addon reads --burrow-play-* and the older --suite-play-* user args;
+## the new prefix wins whatever the order. Tags carry both slot meta names.
+func _arg_parsing(script: GDScript) -> void:
+	var cur: Dictionary = script.parse_user_args(PackedStringArray(["--burrow-play-session=s1", "--burrow-play-port=40320", "--burrow-play-fps=30"]))
+	_check(cur == {"session": "s1", "port": "40320", "fps": "30"}, "args: --burrow-play-* parse (%s)" % [cur])
+	var old: Dictionary = script.parse_user_args(PackedStringArray(["--suite-play-session=s2", "--suite-play-port=40321", "--suite-play-export=async"]))
+	_check(old == {"session": "s2", "port": "40321", "export": "async"}, "args: legacy --suite-play-* parse (%s)" % [old])
+	var both: Dictionary = script.parse_user_args(PackedStringArray(["--burrow-play-session=new", "--suite-play-session=old", "--suite-play-port=1", "--burrow-play-port=2", "--keynames=x"]))
+	_check(both == {"session": "new", "port": "2"}, "args: both prefixes, --burrow-play-* wins in either order (%s)" % [both])
+	var ev := InputEventKey.new()
+	script._tag_slot(ev, 3)
+	_check(ev.get_meta(&"burrow_play_slot", -1) == 3 and ev.get_meta(&"suite_play_slot", -1) == 3, "slot tag sets burrow_play_slot and suite_play_slot")
+
+
 func _check(ok: bool, what: String) -> void:
 	print(("PASS " if ok else "FAIL ") + what)
 	if not ok:
@@ -21,7 +35,9 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _initialize() -> void:
-	var sp: Node = load("res://addons/suite_play/suite_play.gd").new()
+	var script: GDScript = load("res://addons/burrow_play/burrow_play.gd")
+	_arg_parsing(script)
+	var sp: Node = script.new()
 	root.add_child(sp)
 
 	var names_path := ""
@@ -51,7 +67,7 @@ func _initialize() -> void:
 	_check(Input.is_action_pressed("ui_accept") == false, "ui_accept not pressed before Enter")
 	sp.handle_line('{"t":"key","k":"Enter","loc":0,"p":true,"e":false}')
 	Input.flush_buffered_events()
-	_check(Input.is_action_pressed("ui_accept"), "key Enter -> InputMap ui_accept (Voltron main.gd:20 reads this)")
+	_check(Input.is_action_pressed("ui_accept"), "key Enter -> InputMap ui_accept (ExampleGame main.gd:20 reads this)")
 	# Report, not assert: a pad driven only through parse_input_event is not a
 	# registered joypad, so a game that enumerates pads would not see it.
 	print("INFO Input.get_connected_joypads() = %s" % [Input.get_connected_joypads()])
@@ -82,7 +98,7 @@ func _two_devices(sp: Node) -> void:
 	_kbd = InputEventKey.new().device
 	print("INFO InputEventKey default device = %d" % _kbd)
 	var gd := GDScript.new()
-	gd.source_code = "extends Node\nvar got: Array = []\nfunc _input(e: InputEvent) -> void:\n\tif e is InputEventKey or e is InputEventJoypadButton or e is InputEventJoypadMotion:\n\t\tgot.append([e.get_class(), e.device, e.get_meta(&\"suite_play_slot\", -1), e.is_action(&\"ui_accept\")])\n"
+	gd.source_code = "extends Node\nvar got: Array = []\nfunc _input(e: InputEvent) -> void:\n\tif e is InputEventKey or e is InputEventJoypadButton or e is InputEventJoypadMotion:\n\t\tgot.append([e.get_class(), e.device, e.get_meta(&\"burrow_play_slot\", -1), e.is_action(&\"ui_accept\")])\n"
 	gd.reload()
 	_rec = gd.new()
 	root.add_child(_rec)
@@ -304,7 +320,7 @@ func _touch_row(row: Array, first: bool) -> void:
 		if g[0] == "st" and g[1] == 0 and g[2]:
 			seen_at = g[4]
 	_check(seen_at != null and (seen_at as Vector2).distance_to(centre) <= 1.0, "[%s] _input sees the touch at canvas %s (expected %s)" % [name, seen_at, centre])
-	_check(not _touch_rec.got.is_empty() and _touch_rec.got[0][5] == 0, "[%s] touch carries meta suite_play_slot 0" % name)
+	_check(not _touch_rec.got.is_empty() and _touch_rec.got[0][5] == 0, "[%s] touch carries the legacy meta suite_play_slot 0 too" % name)
 
 	# Canceled touch.
 	_presses = 0

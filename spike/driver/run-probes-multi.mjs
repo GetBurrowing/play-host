@@ -6,10 +6,10 @@
 // samples (every sample, not only its 60-sample rolling window).
 //
 // usage: node run-probes-multi.mjs --cdp 127.0.0.1:9223 \
-//          --app http://192.168.1.200:4033 --canvas <canvas uuid> \
+//          --app http://<host-b>:4033 --canvas <canvas uuid> \
 //          --players 2 --spectators 0 --n 50 --label p2-lan \
 //          --out results/p2-lan-01a0dbd6.json [--shot results/p2-lan.jpg] \
-//          [--users jordan,ryan,saru,octavia,brosnan,higgins] [--mobile 1]
+//          [--users user-1,user-2,user-3,user-4,user-5,user-6] [--mobile 1]
 //          [--jitter-ms 34] [--forge-spectator]
 //
 // Node 22+, no npm deps. Needs a dev core with /dev/login?as=<name> and a
@@ -31,11 +31,11 @@
 import fs from 'node:fs';
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
-const cdpHost = arg('cdp', '127.0.0.1:9223'), app = arg('app', 'http://192.168.1.200:4033');
+const cdpHost = arg('cdp', '127.0.0.1:9223'), app = arg('app', 'http://127.0.0.1:4033');
 const canvas = arg('canvas'), players = +arg('players', 1), spectators = +arg('spectators', 0);
 const n = +arg('n', 50), keyEvery = +arg('key-every', 10000), label = arg('label', 'run');
 const out = arg('out'), shotOut = arg('shot'), maxS = +arg('max-seconds', 240);
-const users = arg('users', 'jordan,ryan,saru,octavia,brosnan,higgins,mycroft,geordi').split(',');
+const users = arg('users', 'user-1,user-2,user-3,user-4,user-5,user-6,user-7,user-8').split(',');
 const jitterMs = +arg('jitter-ms', 0);
 // --forge-spectator: AFTER a spectator's honest send count is read, it sends
 // ONE forged key on the host's input-events channel, as a positive control

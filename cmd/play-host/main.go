@@ -55,7 +55,7 @@ func main() {
 	fs.StringVar(&o.RenderingDriver, "rendering-driver", launch.DefaultRenderingDriver(runtime.GOOS), "Godot rendering driver")
 	fs.StringVar(&o.Project, "project", "", "Godot project dir")
 	fs.StringVar(&o.FFmpeg, "ffmpeg", "ffmpeg", "ffmpeg exe")
-	fs.StringVar(&o.Session, "session", "spike-01a0db5f", "session id (the --suite-play-session= marker)")
+	fs.StringVar(&o.Session, "session", "spike-01a0db5f", "session id (the --burrow-play-session= marker)")
 	fs.IntVar(&o.GodotPort, "godot-port", 40320, "127.0.0.1 TCP port the addon listens on")
 	fs.IntVar(&o.RTPPort, "rtp-port", 40330, "127.0.0.1 UDP port for ffmpeg RTP")
 	fs.StringVar(&o.HTTPAddr, "http", "127.0.0.1:18431", "signalling listen address")

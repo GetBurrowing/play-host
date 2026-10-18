@@ -1,5 +1,5 @@
-// Command tcpcheck isolates the byte path between the play host (wave) and
-// core's dev container on moon from any websocket or Phoenix code (task
+// Command tcpcheck isolates the byte path between the play host (host-a) and
+// core's dev container on host-b from any websocket or Phoenix code (task
 // 01a0dbd6 stage 6). `serve` accepts TCP connections and checks every byte
 // against a PRNG stream seeded by the connection's first 8 bytes; `send`
 // writes that stream in writes of random size (like websocket frames) with

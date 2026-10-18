@@ -1,4 +1,0 @@
-[4.2s] join {"state":{"state":"live","frames":19,"videoWidth":324,"videoHeight":720,"videoRect":{"left":43.078125,"top":182,"width":303.828125,"height":675.171875},"content":{"left":43.078515624999994,"top":182,"width":303.82734375,"height":675.171875},"touchAttr":null,"tall":true,"touchAction":"auto","join":fa
-[5.8s] notouch:state {"state":{"state":"live","frames":108,"videoWidth":324,"videoHeight":720,"videoRect":{"left":43.078125,"top":182,"width":303.828125,"height":675.171875},"content":{"left":43.078515624999994,"top":182,"width":303.82734375,"height":675.171875},"touchAttr":null,"tall":true,"touchAction":"auto","join":f
-[6.9s] notouch:tap {"sends":["probe"]}
-[8.8s] notouch:swipe {"scrollY_before":0,"scrollY_after":0,"scrollers_before":[],"scrollers_after":[276],"sends":0,"shot":"notouch-notouch-swiped-01a0fe45.jpg"}

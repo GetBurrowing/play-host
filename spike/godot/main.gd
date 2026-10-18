@@ -8,7 +8,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	DisplayServer.window_set_title("suite-play-spike-01a0db5f")
+	DisplayServer.window_set_title("burrow-play-spike-01a0db5f")
 	var env := WorldEnvironment.new()
 	env.environment = Environment.new()
 	env.environment.background_mode = Environment.BG_COLOR

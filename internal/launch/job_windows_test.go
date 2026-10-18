@@ -14,9 +14,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// These run ON WAVE (GOOS=windows go test -c, then the .exe there). They need
+// These run ON HOST-A (GOOS=windows go test -c, then the .exe there). They need
 // PLAY_HOST_TEST_GODOT = the Godot *_console.exe. PLAY_HOST_SIBLING_PIDS may
-// list pids that must survive (e.g. Connery's headless editor); the test only
+// list pids that must survive (e.g. the editor agent's headless editor); the test only
 // ever OBSERVES those, it never signals them.
 
 func alive(pid int) bool {
@@ -54,14 +54,14 @@ func TestJobKillTakesOnlyItsOwnTree(t *testing.T) {
 		}
 	}
 	// A sibling Godot started OUTSIDE any job the launcher makes.
-	sib := exec.Command(godot, "--headless", "--path", proj, "--", "--suite-play-session=sibling-01a0db5f")
+	sib := exec.Command(godot, "--headless", "--path", proj, "--", "--burrow-play-session=sibling-01a0db5f")
 	if err := sib.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer sib.Process.Kill()
 
 	// The tree under test, through the launcher's Job Object.
-	p, err := Start(Spec{Path: godot, Args: []string{"--headless", "--path", proj, "--", "--suite-play-session=job-01a0db5f"}, Dir: proj, LogPath: filepath.Join(t.TempDir(), "godot.log")})
+	p, err := Start(Spec{Path: godot, Args: []string{"--headless", "--path", proj, "--", "--burrow-play-session=job-01a0db5f"}, Dir: proj, LogPath: filepath.Join(t.TempDir(), "godot.log")})
 	if err != nil {
 		t.Fatal(err)
 	}

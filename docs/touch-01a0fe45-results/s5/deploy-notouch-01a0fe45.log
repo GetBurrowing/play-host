@@ -1,6 +1,0 @@
-2026/10/02 22:26:30.739367 [01a0fea6-1611-7001-a476-3cea68f0ae98] removed checkout C:\Users\slaps\play-host-dev-01a0fe45\checkouts\01a0fe15-3c9219471188 in 134ms err=<nil>
-2026/10/02 22:26:30.739367 [01a0fea6-1611-7001-a476-3cea68f0ae98] session ended: stage 5 run over 01a0fe45
-2026/10/02 22:26:36.569224 play-host f3eaa22e205d0acb36d4268ac129d1980def6f51 serve: runtime play-host-wave-dev-01a0fe45 via ws://192.168.1.200:4034/runtime/ws
-2026/10/02 22:26:36.569224 play-host: dev config: log_touch=true features=[game_stream_host game_stream_multi]
-2026/10/02 22:26:36.772165 suite: joined runtime:play-host-wave-dev-01a0fe45 as play-host
-2026/10/02 22:26:36.772165 host: joined; ready for play_session_start

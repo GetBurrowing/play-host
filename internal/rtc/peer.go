@@ -25,7 +25,7 @@ import (
 
 // Config is the network shape of the host side.
 type Config struct {
-	PortMin, PortMax uint16   // inclusive UDP range (40300-40309 on wave)
+	PortMin, PortMax uint16   // inclusive UDP range (40300-40309 on host-a)
 	AllowIPs         []net.IP // host candidate addresses; empty = all
 	ICEServers       []webrtc.ICEServer
 	IncludeLoopback  bool // tests only
