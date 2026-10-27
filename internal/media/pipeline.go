@@ -69,6 +69,13 @@ type InputSource interface {
 	InputArgs(w, h, fps int) []string
 }
 
+// EncoderRequirer is optionally implemented by an InputSource that only works
+// with one encoder: ddagrab hands D3D11 frames straight to NVENC, so a software
+// encoder would get an argv ffmpeg cannot run.
+type EncoderRequirer interface {
+	RequiredEncoder() EncoderKind
+}
+
 // Pipeline is one ffmpeg H.264 subprocess fed raw RGBA frames on stdin,
 // sending RTP to 127.0.0.1:RTPPort and forwarding it to the viewer track.
 type Pipeline struct {
@@ -142,6 +149,11 @@ func (p *Pipeline) Start(w, h int) error {
 			return err
 		}
 		p.Selected = selected
+	}
+	if rq, ok := p.Source.(EncoderRequirer); ok && rq.RequiredEncoder() != selected {
+		conn.Close()
+		p.Selected = ""
+		return fmt.Errorf("capture source needs the %s encoder but %s was selected; set encoder to nvenc", rq.RequiredEncoder(), selected)
 	}
 	input := RawInputArgs("rgba", w, h, p.Preset.FPS)
 	if p.Source != nil {
