@@ -1,0 +1,51 @@
+{
+  "sha": "0123456789abcdef0123456789abcdef01234567",
+  "ue_version": "5.4.2",
+  "gpu": "Test GPU 1000",
+  "capture_backend": "ddagrab",
+  "encoder": "nvenc",
+  "build_ms": {
+    "cold": {
+      "total": 1800000,
+      "per_step": {
+        "Compiling": 600000,
+        "Cooking": 1200000
+      }
+    },
+    "warm": {
+      "total": 400000,
+      "per_step": {
+        "Compiling": 100000,
+        "Cooking": 300000
+      }
+    }
+  },
+  "probe": [
+    {
+      "backend": "ddagrab",
+      "preset": "p1/ll",
+      "kind": "host_to_photon",
+      "n": 150,
+      "lost": 0,
+      "p50_ms": 31,
+      "p95_ms": 44,
+      "fps": 59.5
+    },
+    {
+      "backend": "ddagrab",
+      "preset": "p4/ll",
+      "kind": "host_to_photon",
+      "n": 150,
+      "lost": 1,
+      "p50_ms": 33,
+      "p95_ms": 47,
+      "fps": 59.1
+    }
+  ],
+  "canvas_session": {
+    "session_id": "",
+    "reached_live": false,
+    "rtt_p50_ms": 0,
+    "rtt_p95_ms": 0
+  }
+}

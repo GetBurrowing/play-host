@@ -24,6 +24,21 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "dryrun" {
+		if err := dryrunCmd(os.Args[2:]); err != nil {
+			log.Fatalf("dryrun: %v", err)
+		}
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "dryrun-check" {
+		os.Exit(dryrunCheckCmd(os.Args[2:]))
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "dryrun-canvas" {
+		if err := dryrunCanvasCmd(os.Args[2:]); err != nil {
+			log.Fatalf("dryrun-canvas: %v", err)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "serve" {
 		if err := serve(os.Args[2:]); err != nil {
 			log.Fatalf("serve: %v", err)
@@ -31,7 +46,7 @@ func main() {
 		return
 	}
 	if len(os.Args) < 2 || os.Args[1] != "spike" {
-		fmt.Fprintln(os.Stderr, "usage: play-host serve -config <config.json> | play-host spike [flags]")
+		fmt.Fprintln(os.Stderr, "usage: play-host serve -config <config.json> | play-host dryrun ... | play-host dryrun-check report.json | play-host spike [flags]")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("spike", flag.ExitOnError)

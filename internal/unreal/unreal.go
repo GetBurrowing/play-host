@@ -60,6 +60,9 @@ type Config struct {
 	Git           string        // git executable ("" = git)
 	Timeout       time.Duration // 0 = DefaultTimeout
 	ProgressEvery time.Duration // 0 = 5 s
+	// NoArchiveCache builds even when a complete archive for the commit
+	// exists (the dry-run's warm pass). The finished build still replaces it.
+	NoArchiveCache bool
 }
 
 // Validate checks what a build needs, and that the DDC outlives checkouts.
@@ -224,7 +227,7 @@ func (b *Builder) Build(ctx context.Context, in Input, progress func(string)) (s
 		return "", err
 	}
 	final := b.Cfg.ArchiveDir(in.RepoKey, in.SHA)
-	if exe, ok := reusable(final, name); ok {
+	if exe, ok := reusable(final, name); ok && !b.Cfg.NoArchiveCache {
 		progress("Reusing build " + in.SHA[:12])
 		b.logf("unreal: reusing archived build %s", final)
 		return exe, nil
