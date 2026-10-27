@@ -43,6 +43,8 @@ import (
 	"time"
 
 	"github.com/Startup-Suite/play-host/internal/build"
+	"github.com/Startup-Suite/play-host/internal/capture"
+	"github.com/Startup-Suite/play-host/internal/engine"
 	"github.com/Startup-Suite/play-host/internal/input"
 	"github.com/Startup-Suite/play-host/internal/launch"
 	"github.com/Startup-Suite/play-host/internal/link"
@@ -93,6 +95,16 @@ type Config struct {
 	// releases included (task 01a0fe45 stage 5). DEV RIGS ONLY: a held
 	// drag is up to 60 lines/s per finger. Config key "log_touch".
 	LogTouch bool
+	// CaptureBackend (ddagrab | wgc; "" = ddagrab) and WindowTimeout (0 = 120 s)
+	// apply to sessions whose checkout is not a Godot project. Config keys
+	// "capture_backend" and "window_timeout_s".
+	CaptureBackend capture.Backend
+	WindowTimeout  time.Duration
+	// FrameStallTimeout is how long a capture session may go without a
+	// frame before it fails (0 = 10 s). Config key "frame_stall_timeout_s".
+	FrameStallTimeout time.Duration
+	// KeepAwake, if set, holds the display awake while a capture session runs.
+	KeepAwake capture.KeepAwake
 }
 
 // DefaultResumeGrace bounds a suite reconnect that keeps the session. Core's
@@ -119,6 +131,16 @@ type Stages interface {
 	// worktree add). Stage 6: the review clause is that an ended session's
 	// checkout is cleaned up.
 	Remove(ctx context.Context, s protocol.SessionStart, dir string) error
+}
+
+// EngineStages is optionally implemented by Stages. A Stages without it is
+// all-Godot (the addon path), which is what every pre-existing test uses.
+type EngineStages interface {
+	// Engine names the engine for a prepared checkout.
+	Engine(dir string) (engine.Kind, error)
+	// Capture returns the video source for a launched non-Godot game. It runs
+	// the session-0 guard and waits for the game window.
+	Capture(ctx context.Context, p launch.Proc, s protocol.SessionStart) (capture.Source, error)
 }
 
 // Host is the engine. It implements suite.Handler.
@@ -410,6 +432,7 @@ type Session struct {
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
+	captured   atomic.Int64 // frames seen from a capture Source
 	exporting  atomic.Bool
 
 	// peers is touched ONLY on the session loop.
@@ -729,6 +752,17 @@ func (s *Session) run() {
 		s.fail(err.Error())
 		return
 	}
+	kind := engine.Godot
+	es, hasEngines := s.h.stages.(EngineStages)
+	if hasEngines {
+		k, err := es.Engine(dir)
+		if err != nil {
+			progStop()
+			s.fail("engine: " + err.Error())
+			return
+		}
+		kind = k
+	}
 	detail.Store("Starting the game")
 	godotLog := filepath.Join(s.h.cfg.LogsDir, "godot-"+s.ID()+".log")
 	p, err := s.h.stages.Launch(dir, s.start, godotLog)
@@ -754,18 +788,37 @@ func (s *Session) run() {
 		case <-s.ctx.Done():
 		}
 	})
-	l, err := link.Dial(s.h.cfg.GodotPort, s.h.cfg.LinkTimeout, func() bool { return !gone.Load() && s.ctx.Err() == nil })
-	progStop()
-	if err != nil {
-		s.fail(err.Error())
-		return
+	if kind == engine.Godot {
+		l, err := link.Dial(s.h.cfg.GodotPort, s.h.cfg.LinkTimeout, func() bool { return !gone.Load() && s.ctx.Err() == nil })
+		progStop()
+		if err != nil {
+			s.fail(err.Error())
+			return
+		}
+		s.link = l
+		if err := s.setupMedia(); err != nil {
+			s.fail("webrtc: " + err.Error())
+			return
+		}
+		go s.guard("media", s.readMedia)
+	} else {
+		detail.Store("Waiting for the game window")
+		src, err := es.Capture(s.ctx, p, s.start)
+		progStop()
+		if err != nil {
+			if s.ctx.Err() == nil {
+				s.fail(err.Error())
+			}
+			return
+		}
+		if err := s.setupMedia(); err != nil {
+			s.fail("webrtc: " + err.Error())
+			return
+		}
+		s.enc.Source = src
+		s.logf("capture: %s (%s)", src.Name(), kind)
+		go s.guard("capture", func() { s.runCapture(src) })
 	}
-	s.link = l
-	if err := s.setupMedia(); err != nil {
-		s.fail("webrtc: " + err.Error())
-		return
-	}
-	go s.guard("media", s.readMedia)
 
 	s.pmu.Lock()
 	s.mediaReady = true
@@ -1292,6 +1345,108 @@ func (s *Session) readMedia() {
 		}
 	}
 }
+
+// runCapture feeds the encoder from a capture Source (non-Godot engines).
+// Frames are dropped, and a native encoder is not started, until a viewer is
+// connected, exactly like the addon path.
+func (s *Session) runCapture(src capture.Source) {
+	if ka := s.h.cfg.KeepAwake; ka != nil {
+		if err := ka.Start(); err != nil {
+			s.fail("capture: " + err.Error())
+			return
+		}
+		defer ka.Stop()
+	}
+	go s.guard("capture watchdog", s.stallWatchdog)
+	if src.Native() {
+		w, h := src.Size()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+			if !s.exporting.Load() {
+				continue
+			}
+			if !s.enc.Running() {
+				if err := s.enc.Start(w, h); err != nil {
+					s.fail("encoder: " + err.Error())
+					return
+				}
+				s.logf("encoder started video=%dx%d %s source=%s: %s", w, h, s.start.Encoder.Label(), src.Name(), strings.Join(s.enc.Args, " "))
+			}
+			s.captured.Store(s.enc.Counts.Packets.Load())
+			s.noteLive(w, h)
+		}
+	}
+	err := src.Frames(s.ctx, func(rgba []byte, w, h int) error {
+		if !s.exporting.Load() {
+			return nil
+		}
+		s.captured.Add(1)
+		if !s.enc.Running() {
+			if err := s.enc.Start(w, h); err != nil {
+				return fmt.Errorf("encoder: %w", err)
+			}
+			s.logf("encoder started video=%dx%d %s source=%s: %s", w, h, s.start.Encoder.Label(), src.Name(), strings.Join(s.enc.Args, " "))
+		}
+		if err := s.enc.WriteFrame(rgba); err != nil {
+			s.logf("encoder write: %v", err)
+			return nil
+		}
+		s.noteLive(w, h)
+		return nil
+	})
+	if err != nil && s.ctx.Err() == nil {
+		s.fail("capture: " + err.Error())
+	}
+}
+
+// stallWatchdog fails the session when a capture session that has a viewer
+// delivers no frame within FrameStallTimeout of the viewer connecting (or of
+// the last frame). It never lets a dead capture hang.
+func (s *Session) stallWatchdog() {
+	limit := s.h.cfg.FrameStallTimeout
+	if limit <= 0 {
+		limit = 10 * time.Second
+	}
+	poll := min(limit/10, 100*time.Millisecond)
+	if poll <= 0 {
+		poll = time.Millisecond
+	}
+	var since time.Time
+	var lastPackets int64 = -1
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+		if !s.exporting.Load() {
+			since, lastPackets = time.Time{}, -1
+			continue
+		}
+		n := s.captured.Load()
+		if since.IsZero() || n != lastPackets {
+			since, lastPackets = time.Now(), n
+			continue
+		}
+		if time.Since(since) >= limit {
+			s.fail("capture stalled: no frames (display asleep?)")
+			return
+		}
+	}
+}
+
+// noteLive sends the live status once the encoder has produced packets.
+func (s *Session) noteLive(w, h int) {
+	if s.enc.Counts.Packets.Load() > 0 && !s.liveSent.Swap(true) {
+		p := s.start.Encoder
+		s.status(protocol.StateLive, fmt.Sprintf("Streaming %dx%d at %d fps (%s/%s %d kbps, GOP %d) with Opus game audio; asked for %dx%d", w, h, p.FPS, p.Preset, p.Tune, p.BitrateKbps, p.GOPFrames, p.Width, p.Height))
+	}
+}
+
 func (s *Session) cleanup() {
 	// Run what was queued before the end: an offer that finished gathering
 	// is closed by installPeer (the context is done) instead of leaking.
@@ -1415,8 +1570,23 @@ func (r *realStages) AssertHead(ctx context.Context, dir, sha string) error {
 	return (&build.Builder{Cfg: r.h.cfg.Build}).AssertHead(ctx, dir, sha)
 }
 
+// Engine implements EngineStages from the checkout's contents.
+func (r *realStages) Engine(dir string) (engine.Kind, error) { return engine.Detect(dir) }
+
+// Capture implements EngineStages: the session-0 guard, then the game window.
+func (r *realStages) Capture(ctx context.Context, p launch.Proc, st protocol.SessionStart) (capture.Source, error) {
+	cc := capture.Real(p.Pids)
+	cc.Backend = r.h.cfg.CaptureBackend
+	cc.Timeout = r.h.cfg.WindowTimeout
+	cc.FPS = st.Encoder.FPS
+	return capture.Start(ctx, cc)
+}
+
 func (r *realStages) Launch(dir string, st protocol.SessionStart, logPath string) (launch.Proc, error) {
 	cfg := r.h.cfg
+	if k, err := engine.Detect(dir); err == nil && k != engine.Godot {
+		return nil, fmt.Errorf("launching a %s build is not wired into this host yet", k)
+	}
 	args := launch.GodotArgsForDriver(dir, cfg.RenderingDriver, st.Encoder.Width, st.Encoder.Height, st.SessionID, cfg.GodotPort, st.Encoder.FPS)
 	r.h.logf("launch: %s %v", cfg.Godot, args)
 	return launch.Start(launch.Spec{Path: cfg.Godot, Args: args, Dir: dir, LogPath: logPath})

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Startup-Suite/play-host/internal/build"
+	"github.com/Startup-Suite/play-host/internal/capture"
 	"github.com/Startup-Suite/play-host/internal/host"
 	"github.com/Startup-Suite/play-host/internal/input"
 	"github.com/Startup-Suite/play-host/internal/launch"
@@ -59,6 +60,12 @@ type FileConfig struct {
 	HeartbeatS      int               `json:"heartbeat_s"`
 	LaunchTimeoutS  int               `json:"launch_timeout_s"`
 	ProgressEveryMs int               `json:"progress_every_ms"`
+	// Capture for non-Godot engines (Unreal): ddagrab (default) | wgc, how
+	// long to wait for the game window, and how long a capture may deliver
+	// no frames before the session fails.
+	CaptureBackend capture.Backend `json:"capture_backend"`
+	WindowTimeoutS int             `json:"window_timeout_s"`      // 0 = 120
+	StallTimeoutS  int             `json:"frame_stall_timeout_s"` // 0 = 10
 	// DEV RIGS ONLY (task 01a0fe45 stage 5); prod config.json sets neither.
 	// LogTouch logs every st/sd line sent to the addon. Features, when
 	// present, replaces client_info.features: ["game_stream_host",
@@ -83,6 +90,9 @@ func LoadConfig(path string) (FileConfig, error) {
 		c.Encoder = media.EncoderAuto
 	}
 	if err := c.Encoder.Validate(); err != nil {
+		return c, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := c.CaptureBackend.Validate(); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
 	}
 	if c.RenderingDriver == "" {
@@ -183,10 +193,12 @@ func (c FileConfig) hostConfig() host.Config {
 		Godot: c.Godot, RenderingDriver: c.RenderingDriver,
 		FFmpeg: c.FFmpeg, Encoder: selectEncoderForOS(c.Encoder, runtime.GOOS), EncoderFallback: c.EncoderFallback, LogsDir: c.LogsDir, HostIP: c.HostIP, UDPMin: c.UDPMin, UDPMax: c.UDPMax,
 		GodotPort: c.GodotPort, RTPPort: c.RTPPort, AudioRTPPort: c.AudioRTPPort,
-		ImportTimeout: time.Duration(c.ImportTimeoutS) * time.Second,
-		LinkTimeout:   time.Duration(c.LaunchTimeoutS) * time.Second,
-		ProgressEvery: time.Duration(c.ProgressEveryMs) * time.Millisecond,
-		LogTouch:      c.LogTouch,
+		KeepAwake: capture.NewKeepAwake(), CaptureBackend: c.CaptureBackend, WindowTimeout: time.Duration(c.WindowTimeoutS) * time.Second,
+		FrameStallTimeout: time.Duration(c.StallTimeoutS) * time.Second,
+		ImportTimeout:     time.Duration(c.ImportTimeoutS) * time.Second,
+		LinkTimeout:       time.Duration(c.LaunchTimeoutS) * time.Second,
+		ProgressEvery:     time.Duration(c.ProgressEveryMs) * time.Millisecond,
+		LogTouch:          c.LogTouch,
 		Build: build.Config{Git: c.Git, SSH: c.SSH, KnownHosts: c.KnownHosts, MirrorsDir: c.MirrorsDir,
 			CheckoutsDir: c.CheckoutsDir, AddonDir: c.AddonDir, Repos: c.Repos, KeepCheckouts: c.KeepCheckouts},
 	}

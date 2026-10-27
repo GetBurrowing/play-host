@@ -1,0 +1,84 @@
+{
+  "events": {
+    "play_peer_close": {
+      "core_to_host": [
+        "peer_id",
+        "session_id"
+      ]
+    },
+    "play_peer_open": {
+      "core_to_host": [
+        "peer_id",
+        "session_id"
+      ]
+    },
+    "play_session_start": {
+      "core_to_host": [
+        "branch",
+        "encoder",
+        "ice_servers",
+        "idle_timeout_s",
+        "repo_url",
+        "session_id",
+        "sha",
+        "task_id"
+      ]
+    },
+    "play_session_status": {
+      "host_to_core": [
+        "detail",
+        "elapsed_ms",
+        "session_id",
+        "state"
+      ],
+      "host_to_core_resume": [
+        "detail",
+        "elapsed_ms",
+        "peers",
+        "resume",
+        "session_id",
+        "state"
+      ]
+    },
+    "play_session_stop": {
+      "core_to_host": [
+        "reason",
+        "session_id"
+      ]
+    },
+    "play_signal": {
+      "core_to_host": [
+        "data",
+        "kind",
+        "peer_id",
+        "session_id"
+      ],
+      "host_to_core": [
+        "data",
+        "kind",
+        "peer_id",
+        "session_id"
+      ]
+    },
+    "play_slot_activity": {
+      "host_to_core": [
+        "session_id",
+        "slots"
+      ]
+    },
+    "play_slots": {
+      "core_to_host": [
+        "max_players",
+        "peers",
+        "session_id"
+      ]
+    }
+  },
+  "browser_types": [
+    "key",
+    "pad",
+    "probe",
+    "release_all",
+    "touch"
+  ]
+}

@@ -18,3 +18,16 @@ jobs:
       - run: go test ./...
       - run: GOOS=darwin GOARCH=amd64 go vet ./...
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o /tmp/play-host-darwin-amd64 ./cmd/play-host
+      - run: GOOS=windows GOARCH=amd64 go vet ./...
+      - run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath ./cmd/play-host
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
