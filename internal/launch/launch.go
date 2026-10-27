@@ -16,6 +16,8 @@ type Spec struct {
 	Args    []string // not including argv[0]
 	Dir     string
 	LogPath string // stdout+stderr file; empty = discard
+	// Env is extra KEY=VALUE entries added to the host's own environment.
+	Env []string
 }
 
 // Proc is a started process tree.

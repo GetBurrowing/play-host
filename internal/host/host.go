@@ -30,6 +30,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -52,6 +53,7 @@ import (
 	"github.com/Startup-Suite/play-host/internal/media"
 	"github.com/Startup-Suite/play-host/internal/protocol"
 	"github.com/Startup-Suite/play-host/internal/rtc"
+	"github.com/Startup-Suite/play-host/internal/unreal"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -96,6 +98,9 @@ type Config struct {
 	// releases included (task 01a0fe45 stage 5). DEV RIGS ONLY: a held
 	// drag is up to 60 lines/s per finger. Config key "log_touch".
 	LogTouch bool
+	// Unreal is the machine's Unreal setup: ue_root, archive_root, ddc_dir,
+	// ddc_shared_dir and unreal_build_timeout_s (CheckoutsDir is filled from Build).
+	Unreal unreal.Config
 	// CaptureBackend (ddagrab | wgc; "" = ddagrab) and WindowTimeout (0 = 120 s)
 	// apply to sessions whose checkout is not a Godot project. Config keys
 	// "capture_backend" and "window_timeout_s".
@@ -1562,7 +1567,20 @@ func ICEServers(in []protocol.ICEServer) []webrtc.ICEServer {
 }
 
 // realStages uses git and Godot.
-type realStages struct{ h *Host }
+type realStages struct {
+	h *Host
+
+	mu       sync.Mutex
+	archives map[string]string // checkout dir -> packaged exe (Unreal)
+	start    func(launch.Spec) (launch.Proc, error)
+}
+
+func (r *realStages) launchStart(s launch.Spec) (launch.Proc, error) {
+	if r.start != nil {
+		return r.start(s)
+	}
+	return launch.Start(s)
+}
 
 func (r *realStages) Prepare(ctx context.Context, st protocol.SessionStart, progress func(string)) (string, error) {
 	cfg := r.h.cfg
@@ -1584,6 +1602,10 @@ func (r *realStages) Prepare(ctx context.Context, st protocol.SessionStart, prog
 	if err := b.Checkout(ctx, repo, mirror, dir, st.SHA); err != nil {
 		return "", err
 	}
+	if k, kerr := engine.Detect(dir); kerr == nil && k == engine.Unreal {
+		b.Prune(ctx, mirror, dir)
+		return dir, r.prepareUnreal(ctx, st, repo.Match, dir, progress)
+	}
 	addon, removed, err := b.InstallAddon(dir)
 	if err != nil {
 		return "", err
@@ -1602,6 +1624,32 @@ func (r *realStages) Prepare(ctx context.Context, st protocol.SessionStart, prog
 		progress(fmt.Sprintf("Importing assets (%ds)", int(el.Seconds())))
 	})
 	return dir, err
+}
+
+// prepareUnreal builds (or reuses) the packaged game for the checkout.
+func (r *realStages) prepareUnreal(ctx context.Context, st protocol.SessionStart, repoMatch, dir string, progress func(string)) error {
+	cfg := r.h.cfg
+	uc := cfg.Unreal
+	uc.CheckoutsDir = cfg.Build.CheckoutsDir
+	uc.Git = cfg.Build.Git
+	if uc.ProgressEvery == 0 {
+		uc.ProgressEvery = cfg.ProgressEvery
+	}
+	ub := &unreal.Builder{Cfg: uc, Logf: r.h.logf}
+	exe, err := ub.Build(ctx, unreal.Input{
+		RepoKey: unreal.RepoKey(repoMatch), SHA: st.SHA, Dir: dir,
+		LogPath: filepath.Join(cfg.LogsDir, "uat-"+st.SessionID+".log"),
+	}, progress)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if r.archives == nil {
+		r.archives = map[string]string{}
+	}
+	r.archives[dir] = exe
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *realStages) Remove(ctx context.Context, st protocol.SessionStart, dir string) error {
@@ -1645,8 +1693,16 @@ func (r *realStages) Input(p launch.Proc, src capture.Source) (*inject.Injector,
 
 func (r *realStages) Launch(dir string, st protocol.SessionStart, logPath string) (launch.Proc, error) {
 	cfg := r.h.cfg
-	if k, err := engine.Detect(dir); err == nil && k != engine.Godot {
-		return nil, fmt.Errorf("launching a %s build is not wired into this host yet", k)
+	if k, err := engine.Detect(dir); err == nil && k == engine.Unreal {
+		r.mu.Lock()
+		exe := r.archives[dir]
+		r.mu.Unlock()
+		if exe == "" {
+			return nil, errors.New("no packaged build for this checkout")
+		}
+		spec := unreal.LaunchSpec(exe, st.Encoder.Width, st.Encoder.Height, logPath)
+		r.h.logf("launch: %s %v", spec.Path, spec.Args)
+		return r.launchStart(spec)
 	}
 	args := launch.GodotArgsForDriver(dir, cfg.RenderingDriver, st.Encoder.Width, st.Encoder.Height, st.SessionID, cfg.GodotPort, st.Encoder.FPS)
 	r.h.logf("launch: %s %v", cfg.Godot, args)

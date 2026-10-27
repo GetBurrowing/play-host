@@ -22,6 +22,7 @@ import (
 	"github.com/Startup-Suite/play-host/internal/launch"
 	"github.com/Startup-Suite/play-host/internal/media"
 	"github.com/Startup-Suite/play-host/internal/suite"
+	"github.com/Startup-Suite/play-host/internal/unreal"
 )
 
 // Version is stamped at build time with -ldflags "-X main.Version=<sha>".
@@ -63,9 +64,16 @@ type FileConfig struct {
 	// Capture for non-Godot engines (Unreal): ddagrab (default) | wgc, how
 	// long to wait for the game window, and how long a capture may deliver
 	// no frames before the session fails.
-	CaptureBackend capture.Backend `json:"capture_backend"`
-	WindowTimeoutS int             `json:"window_timeout_s"`      // 0 = 120
-	StallTimeoutS  int             `json:"frame_stall_timeout_s"` // 0 = 10
+	// Unreal builds (engine=unreal checkouts). ddc_dir is a persistent
+	// derived-data cache and must NOT be under checkouts_dir.
+	UERoot              string          `json:"ue_root"`
+	ArchiveRoot         string          `json:"archive_root"`
+	DDCDir              string          `json:"ddc_dir"`
+	DDCSharedDir        string          `json:"ddc_shared_dir"`
+	UnrealBuildTimeoutS int             `json:"unreal_build_timeout_s"` // 0 = 3600
+	CaptureBackend      capture.Backend `json:"capture_backend"`
+	WindowTimeoutS      int             `json:"window_timeout_s"`      // 0 = 120
+	StallTimeoutS       int             `json:"frame_stall_timeout_s"` // 0 = 10
 	// DEV RIGS ONLY (task 01a0fe45 stage 5); prod config.json sets neither.
 	// LogTouch logs every st/sd line sent to the addon. Features, when
 	// present, replaces client_info.features: ["game_stream_host",
@@ -94,6 +102,12 @@ func LoadConfig(path string) (FileConfig, error) {
 	}
 	if err := c.CaptureBackend.Validate(); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
+	}
+	if c.UERoot != "" || c.ArchiveRoot != "" || c.DDCDir != "" {
+		uc := unreal.Config{UERoot: c.UERoot, ArchiveRoot: c.ArchiveRoot, DDCDir: c.DDCDir, CheckoutsDir: c.CheckoutsDir}
+		if err := uc.Validate(); err != nil {
+			return c, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if c.RenderingDriver == "" {
 		c.RenderingDriver = launch.DefaultRenderingDriver(runtime.GOOS)
@@ -195,10 +209,12 @@ func (c FileConfig) hostConfig() host.Config {
 		GodotPort: c.GodotPort, RTPPort: c.RTPPort, AudioRTPPort: c.AudioRTPPort,
 		KeepAwake: capture.NewKeepAwake(), CaptureBackend: c.CaptureBackend, WindowTimeout: time.Duration(c.WindowTimeoutS) * time.Second,
 		FrameStallTimeout: time.Duration(c.StallTimeoutS) * time.Second,
-		ImportTimeout:     time.Duration(c.ImportTimeoutS) * time.Second,
-		LinkTimeout:       time.Duration(c.LaunchTimeoutS) * time.Second,
-		ProgressEvery:     time.Duration(c.ProgressEveryMs) * time.Millisecond,
-		LogTouch:          c.LogTouch,
+		Unreal: unreal.Config{UERoot: c.UERoot, ArchiveRoot: c.ArchiveRoot, DDCDir: c.DDCDir, SharedDDC: c.DDCSharedDir,
+			Timeout: time.Duration(c.UnrealBuildTimeoutS) * time.Second},
+		ImportTimeout: time.Duration(c.ImportTimeoutS) * time.Second,
+		LinkTimeout:   time.Duration(c.LaunchTimeoutS) * time.Second,
+		ProgressEvery: time.Duration(c.ProgressEveryMs) * time.Millisecond,
+		LogTouch:      c.LogTouch,
 		Build: build.Config{Git: c.Git, SSH: c.SSH, KnownHosts: c.KnownHosts, MirrorsDir: c.MirrorsDir,
 			CheckoutsDir: c.CheckoutsDir, AddonDir: c.AddonDir, Repos: c.Repos, KeepCheckouts: c.KeepCheckouts},
 	}
