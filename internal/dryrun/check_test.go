@@ -1,6 +1,7 @@
 package dryrun
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"os"
@@ -40,6 +41,8 @@ func TestDryrunReportSchemaGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A Windows checkout may have turned the golden's LF into CRLF.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if string(got) != string(want) {
 		t.Fatalf("report schema changed:\n%s\nwant:\n%s", got, want)
 	}
