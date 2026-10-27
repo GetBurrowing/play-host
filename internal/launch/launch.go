@@ -16,6 +16,8 @@ type Spec struct {
 	Args    []string // not including argv[0]
 	Dir     string
 	LogPath string // stdout+stderr file; empty = discard
+	// Env is extra KEY=VALUE entries added to the host's own environment.
+	Env []string
 }
 
 // Proc is a started process tree.
@@ -93,6 +95,44 @@ func AddonArgs(session string, port, fps int) []string {
 	for _, prefix := range []string{AddonArgPrefix, LegacyAddonArgPrefix} {
 		for i, n := range names {
 			out = append(out, prefix+n+"="+values[i])
+		}
+	}
+	return out
+}
+
+// MergeEnv overlays extra on base: an entry in extra replaces any base entry
+// with the same name, so the child sees one value per name. Windows takes the
+// FIRST of two duplicate names in an environment block, and treats names
+// case-insensitively, so it needs the replacement done here (fold=true).
+func MergeEnv(base, extra []string, fold bool) []string {
+	key := func(e string) string {
+		k, _, _ := strings.Cut(e, "=")
+		if fold {
+			k = strings.ToUpper(k)
+		}
+		return k
+	}
+	over := make(map[string]string, len(extra))
+	for _, e := range extra {
+		over[key(e)] = e
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	seen := map[string]bool{}
+	for _, e := range base {
+		k := key(e)
+		if v, ok := over[k]; ok {
+			if !seen[k] {
+				out = append(out, v)
+				seen[k] = true
+			}
+			continue
+		}
+		out = append(out, e)
+	}
+	for _, e := range extra {
+		if k := key(e); !seen[k] {
+			out = append(out, over[k])
+			seen[k] = true
 		}
 	}
 	return out

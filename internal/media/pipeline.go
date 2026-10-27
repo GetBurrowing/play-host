@@ -62,6 +62,20 @@ func (r *Rewriter) Rewrite(pkt *rtp.Packet) {
 	r.lastSeq, r.lastTS, r.lastWall = pkt.SequenceNumber, pkt.Timestamp, now
 }
 
+// InputSource supplies the ffmpeg input for a pipeline. A frame-pushing source
+// returns a rawvideo stdin input (RawInputArgs); an ffmpeg-native source (for
+// example ddagrab) returns its own input and nothing is written to stdin.
+type InputSource interface {
+	InputArgs(w, h, fps int) []string
+}
+
+// EncoderRequirer is optionally implemented by an InputSource that only works
+// with one encoder: ddagrab hands D3D11 frames straight to NVENC, so a software
+// encoder would get an argv ffmpeg cannot run.
+type EncoderRequirer interface {
+	RequiredEncoder() EncoderKind
+}
+
 // Pipeline is one ffmpeg H.264 subprocess fed raw RGBA frames on stdin,
 // sending RTP to 127.0.0.1:RTPPort and forwarding it to the viewer track.
 type Pipeline struct {
@@ -74,6 +88,9 @@ type Pipeline struct {
 	LogPath  string
 	Rewrite  *Rewriter
 	Counts   *Counters
+	// Source supplies ffmpeg's input args. Nil is the Godot addon path:
+	// RawInputArgs("rgba", w, h, fps) on stdin, exactly as before.
+	Source InputSource
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
@@ -133,7 +150,16 @@ func (p *Pipeline) Start(w, h int) error {
 		}
 		p.Selected = selected
 	}
-	p.Args = CommandForEncoder(RawInputArgs("rgba", w, h, p.Preset.FPS), p.Preset, selected, FramingRTP, p.RTPPort)
+	if rq, ok := p.Source.(EncoderRequirer); ok && rq.RequiredEncoder() != selected {
+		conn.Close()
+		p.Selected = ""
+		return fmt.Errorf("capture source needs the %s encoder but %s was selected; set encoder to nvenc", rq.RequiredEncoder(), selected)
+	}
+	input := RawInputArgs("rgba", w, h, p.Preset.FPS)
+	if p.Source != nil {
+		input = p.Source.InputArgs(w, h, p.Preset.FPS)
+	}
+	p.Args = CommandForEncoder(input, p.Preset, selected, FramingRTP, p.RTPPort)
 	cmd := exec.Command(p.FFmpeg, p.Args...)
 	var logf *os.File
 	if p.LogPath != "" {

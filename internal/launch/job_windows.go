@@ -4,7 +4,10 @@ package launch
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -76,9 +79,13 @@ func Start(s Spec) (Proc, error) {
 	if s.Dir != "" {
 		dir16, _ = windows.UTF16PtrFromString(s.Dir)
 	}
+	var env *uint16
+	if len(s.Env) > 0 {
+		env = envBlock(MergeEnv(os.Environ(), s.Env, true))
+	}
 	var pi windows.ProcessInformation
 	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_NO_WINDOW)
-	if err := windows.CreateProcess(app16, cmd16, nil, nil, true, flags, nil, dir16, &si.StartupInfo, &pi); err != nil {
+	if err := windows.CreateProcess(app16, cmd16, nil, nil, true, flags, env, dir16, &si.StartupInfo, &pi); err != nil {
 		windows.CloseHandle(job)
 		return nil, fmt.Errorf("CreateProcess %s: %w", s.Path, err)
 	}
@@ -146,4 +153,19 @@ func (p *jobProc) Pids() ([]int, error) {
 		out = append(out, int(buf[1+i]))
 	}
 	return out, nil
+}
+
+// envBlock is a CreateProcess environment block: NUL-separated entries, an
+// extra NUL at the end, UTF-16. Entries with an interior NUL are skipped.
+func envBlock(env []string) *uint16 {
+	var u []uint16
+	for _, e := range env {
+		if e == "" || strings.ContainsRune(e, 0) {
+			continue
+		}
+		u = append(u, utf16.Encode([]rune(e))...)
+		u = append(u, 0)
+	}
+	u = append(u, 0)
+	return &u[0]
 }
