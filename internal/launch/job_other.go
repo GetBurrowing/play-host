@@ -28,7 +28,7 @@ func Start(s Spec) (Proc, error) {
 	c := exec.Command(s.Path, s.Args...)
 	c.Dir = s.Dir
 	if len(s.Env) > 0 {
-		c.Env = append(os.Environ(), s.Env...)
+		c.Env = MergeEnv(os.Environ(), s.Env, false)
 	}
 	if s.LogPath != "" {
 		f, err := os.Create(s.LogPath)

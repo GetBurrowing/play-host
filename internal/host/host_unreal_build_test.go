@@ -107,7 +107,11 @@ func TestUnrealBuildProgressOrder(t *testing.T) {
 	h, c := newCaptureHost(t, 40432, nil, nil)
 	h.stages = &buildStages{unrealStages: u, root: t.TempDir()}
 	h.OnEvent(protocol.EventSessionStart, startPayload("b1", 600))
-	<-c.offer
+	select {
+	case <-c.offer:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("no offer; last status %+v", c.last("b1"))
+	}
 	var seen []string
 	for _, d := range building(c, "b1") {
 		for _, w := range unreal.Steps {

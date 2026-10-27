@@ -81,7 +81,7 @@ func Start(s Spec) (Proc, error) {
 	}
 	var env *uint16
 	if len(s.Env) > 0 {
-		env = envBlock(append(os.Environ(), s.Env...))
+		env = envBlock(MergeEnv(os.Environ(), s.Env, true))
 	}
 	var pi windows.ProcessInformation
 	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_NO_WINDOW)
