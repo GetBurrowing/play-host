@@ -25,12 +25,14 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Startup-Suite/play-host/internal/capture"
 	"github.com/Startup-Suite/play-host/internal/launch"
 )
 
 // Steps, in build order. The detail of a building status starts with one.
 const (
 	StepPreparing = "Preparing"
+	StepEditor    = "Editor scripts"
 	StepCompiling = "Compiling"
 	StepCooking   = "Cooking"
 	StepStaging   = "Staging"
@@ -39,7 +41,7 @@ const (
 )
 
 // Steps is every step word, for consumers that recognise a detail.
-var Steps = []string{StepPreparing, StepCompiling, StepCooking, StepStaging, StepPackaging, StepArchiving}
+var Steps = []string{StepPreparing, StepEditor, StepCompiling, StepCooking, StepStaging, StepPackaging, StepArchiving}
 
 // DefaultTimeout bounds one build; a first cook is long, so it is generous.
 const DefaultTimeout = 3600 * time.Second
@@ -104,6 +106,13 @@ type Builder struct {
 	Start func(launch.Spec) (launch.Proc, error)
 	// Command turns RunUAT.bat and its args into the process to start.
 	Command func(uat string, args []string) (string, []string)
+	// EditorCommand turns UnrealEditor-Cmd.exe and its args into the process
+	// to start (the identity by default; tests swap in a helper).
+	EditorCommand func(exe string, args []string) (string, []string)
+	// Env is the session identity the editor runner's guard checks. The runner
+	// refuses to start the editor without it: an editor started in session 0
+	// or from a service has no desktop and no GPU context.
+	Env capture.Env
 	// ExtraEnv is added to RunUAT's environment after the DDC entries (tests).
 	ExtraEnv []string
 	// Poll is how often the log is read (0 = 100 ms).
@@ -221,6 +230,13 @@ func (b *Builder) Build(ctx context.Context, in Input, progress func(string)) (s
 		return exe, nil
 	}
 
+	// The manifest is checked before anything slow runs, so a bad one fails
+	// in seconds, not after the LFS pull.
+	jobs, err := PlanEditorJobs(in.Dir, uproject)
+	if err != nil {
+		return "", err
+	}
+
 	git := b.Cfg.Git
 	if git == "" {
 		git = "git"
@@ -234,6 +250,10 @@ func (b *Builder) Build(ctx context.Context, in Input, progress func(string)) (s
 	}
 	if out, err := b.run(ctx, in.Dir, git, "lfs", "pull"); err != nil {
 		return "", fmt.Errorf("git lfs pull: %w: %s", err, tail(string(out), 200))
+	}
+
+	if err := b.runEditorJobs(ctx, in, uproject, jobs, progress); err != nil {
+		return "", err
 	}
 
 	partial := final + ".partial"
@@ -266,6 +286,17 @@ func (b *Builder) Build(ctx context.Context, in Input, progress func(string)) (s
 }
 
 func (b *Builder) runUAT(ctx context.Context, in Input, uproject, archiveDir string, progress func(string)) error {
+	uat := filepath.Join(b.Cfg.UERoot, "Engine", "Build", "BatchFiles", "RunUAT.bat")
+	path, args := b.command(uat, UATArgs(uproject, archiveDir))
+	spec := launch.Spec{Path: path, Args: args, Dir: in.Dir, LogPath: in.LogPath, Env: append(b.Cfg.Env(), b.ExtraEnv...)}
+	b.logf("unreal: RunUAT %v", UATArgs(uproject, archiveDir))
+	return b.runJob(ctx, spec, "RunUAT", StepPreparing, true, progress)
+}
+
+// runJob runs spec under the Job Object and follows its log: banners (UAT
+// only) move the step, and a non-zero exit, a timeout or a stop ends it. The
+// step word in progress and in the failure text is the scanner's current one.
+func (b *Builder) runJob(ctx context.Context, spec launch.Spec, label, startStep string, banners bool, progress func(string)) error {
 	timeout := b.Cfg.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -278,19 +309,15 @@ func (b *Builder) runUAT(ctx context.Context, in Input, uproject, archiveDir str
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	uat := filepath.Join(b.Cfg.UERoot, "Engine", "Build", "BatchFiles", "RunUAT.bat")
-	path, args := b.command(uat, UATArgs(uproject, archiveDir))
-	spec := launch.Spec{Path: path, Args: args, Dir: in.Dir, LogPath: in.LogPath, Env: append(b.Cfg.Env(), b.ExtraEnv...)}
-	b.logf("unreal: RunUAT %v", UATArgs(uproject, archiveDir))
 	proc, err := b.start(spec)
 	if err != nil {
-		return fmt.Errorf("RunUAT: %w", err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	sc := &scanner{path: in.LogPath, step: StepPreparing}
+	sc := &scanner{path: spec.LogPath, step: startStep, banners: banners}
 	t0 := time.Now()
 	report := func() {
 		progress(fmt.Sprintf("%s (%ds)", sc.current(), int(time.Since(t0).Seconds())))
@@ -338,7 +365,7 @@ loop:
 		return fmt.Errorf("Build timed out during %s", sc.current())
 	}
 	if ex.err != nil {
-		return fmt.Errorf("RunUAT: %w", ex.err)
+		return fmt.Errorf("%s: %w", label, ex.err)
 	}
 	if ex.code != 0 || sc.exit > 0 {
 		code := ex.code
@@ -371,9 +398,10 @@ var errRe = regexp.MustCompile(`(?i)\b(error|fatal|failed)\b`)
 
 // scanner follows the growing UAT log.
 type scanner struct {
-	path string
-	off  int64
-	buf  []byte
+	banners bool // follow UAT's COMMAND STARTED banners and exit line
+	path    string
+	off     int64
+	buf     []byte
 
 	mu      sync.Mutex
 	step    string
@@ -432,6 +460,12 @@ func (s *scanner) line(line string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.last = line
+	if !s.banners {
+		if errRe.MatchString(line) {
+			s.lastErr = line
+		}
+		return false
+	}
 	if m := exitRe.FindStringSubmatch(line); m != nil {
 		s.exit, _ = strconv.Atoi(m[1])
 		return false

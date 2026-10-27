@@ -1635,7 +1635,7 @@ func (r *realStages) prepareUnreal(ctx context.Context, st protocol.SessionStart
 	if uc.ProgressEvery == 0 {
 		uc.ProgressEvery = cfg.ProgressEvery
 	}
-	ub := &unreal.Builder{Cfg: uc, Logf: r.h.logf}
+	ub := &unreal.Builder{Cfg: uc, Logf: r.h.logf, Env: capture.Real(nil).Env}
 	exe, err := ub.Build(ctx, unreal.Input{
 		RepoKey: unreal.RepoKey(repoMatch), SHA: st.SHA, Dir: dir,
 		LogPath: filepath.Join(cfg.LogsDir, "uat-"+st.SessionID+".log"),

@@ -25,11 +25,25 @@ type fakeScript struct {
 }
 
 func TestMain(m *testing.M) {
+	// The editor stand-in is told apart from RunUAT by its -run= argument.
+	if e := os.Getenv("FAKE_EDITOR"); e != "" && hasArgPrefix("-run=") {
+		fakeUAT(e)
+		return
+	}
 	if s := os.Getenv("FAKE_UAT"); s != "" {
 		fakeUAT(s)
 		return
 	}
 	os.Exit(m.Run())
+}
+
+func hasArgPrefix(p string) bool {
+	for _, a := range os.Args {
+		if strings.HasPrefix(a, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func fakeUAT(raw string) {
@@ -121,7 +135,9 @@ func newRig(t *testing.T) *rig {
 			r.mu.Unlock()
 			return nil, nil
 		},
-		Command: func(uat string, args []string) (string, []string) { return exe, args },
+		Command:       func(uat string, args []string) (string, []string) { return exe, args },
+		EditorCommand: func(_ string, args []string) (string, []string) { return exe, args },
+		Env:           fakeEnv{1, 1},
 		Start: func(s launch.Spec) (launch.Proc, error) {
 			r.mu.Lock()
 			r.specs = append(r.specs, s)
@@ -374,3 +390,8 @@ func TestUATArgs(t *testing.T) {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 }
+
+type fakeEnv struct{ id, active uint32 }
+
+func (e fakeEnv) SessionID() (uint32, error)     { return e.id, nil }
+func (e fakeEnv) ActiveConsoleSessionID() uint32 { return e.active }
