@@ -170,7 +170,10 @@ func Start(ctx context.Context, cfg Config) (Source, error) {
 		}
 		return cfg.NewWGC(win, mons[idx])
 	default:
-		return NewDDAGrab(idx, local), nil
+		d := NewDDAGrab(idx, local).(*ddaGrab)
+		d.window = win.Handle
+		d.screen = Rect{X: win.Client.X, Y: win.Client.Y, W: d.rect.W, H: d.rect.H}
+		return d, nil
 	}
 }
 
@@ -253,7 +256,22 @@ func intersect(a, b Rect) Rect {
 type ddaGrab struct {
 	output int
 	rect   Rect // monitor-local, even-sized
+	// window and screen are the game window and the captured area in screen
+	// coordinates, for input injection (stage 2).
+	window uintptr
+	screen Rect
 }
+
+// Targeted is a Source that captures one window, so input can be aimed at it.
+type Targeted interface {
+	// ClientRect is the captured client area in screen pixels.
+	ClientRect() Rect
+	// WindowHandle is the game window.
+	WindowHandle() uintptr
+}
+
+func (d *ddaGrab) ClientRect() Rect      { return d.screen }
+func (d *ddaGrab) WindowHandle() uintptr { return d.window }
 
 // NewDDAGrab crops output_idx to rect (monitor-local), rounding the size down
 // to even as the H.264 encoder needs.

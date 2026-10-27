@@ -13,9 +13,11 @@ import (
 
 	"github.com/Startup-Suite/play-host/internal/capture"
 	"github.com/Startup-Suite/play-host/internal/engine"
+	"github.com/Startup-Suite/play-host/internal/inject"
 	"github.com/Startup-Suite/play-host/internal/launch"
 	"github.com/Startup-Suite/play-host/internal/protocol"
 	"github.com/Startup-Suite/play-host/internal/rtc"
+	"github.com/pion/webrtc/v4"
 )
 
 // captureProc is an Unreal game with no addon link.
@@ -51,6 +53,7 @@ type unrealStages struct {
 	windows []capture.Window
 	pushed  *capture.Pushed
 	removed atomic.Bool
+	sink    *inject.FakeSink
 }
 
 func (u *unrealStages) Prepare(ctx context.Context, s protocol.SessionStart, progress func(string)) (string, error) {
@@ -159,4 +162,50 @@ func TestCaptureStallFailsSession(t *testing.T) {
 		t.Error("keep-awake was not started")
 	}
 	eventually(t, "keep-awake released", ka.stopped.Load)
+}
+
+// Input implements InputStages over a fake sink.
+func (u *unrealStages) Input(p launch.Proc, src capture.Source) (*inject.Injector, error) {
+	u.sink = &inject.FakeSink{Client: capture.Rect{W: 64, H: 48}, Virtual: capture.Rect{W: 1920, H: 1080}}
+	return inject.New(capEnv{}, u.sink, inject.Options{Frame: func() (int, int) { return 64, 48 }, Logf: func(string, ...any) {}})
+}
+
+func pushedStream(sent *atomic.Int64) *capture.Pushed {
+	return &capture.Pushed{Label: "fake", Run: func(ctx context.Context, deliver capture.FrameFunc) error {
+		frame := make([]byte, 64*48*4)
+		for ctx.Err() == nil {
+			if err := deliver(frame, 64, 48); err != nil {
+				return err
+			}
+			sent.Add(1)
+			time.Sleep(5 * time.Millisecond)
+		}
+		return nil
+	}}
+}
+
+// Browser keys reach the sink as scancodes, and a closing peer releases what
+// it holds while the session is still running.
+func TestReleaseOnPeerClose(t *testing.T) {
+	rtc.DisconnectGrace = 200 * time.Millisecond
+	var sent atomic.Int64
+	u := &unrealStages{t: t, windows: theWindow, pushed: pushedStream(&sent)}
+	h, c := newCaptureHost(t, 40430, u, nil)
+	h.OnEvent(protocol.EventSessionStart, startPayload("u4", 600))
+	offer := <-c.offer
+	pc, dcs, _ := viewer(t, h, offer)
+	var events *webrtc.DataChannel
+	for events == nil {
+		if dc := <-dcs; dc.Label() == rtc.LabelInputEvents {
+			events = dc
+		}
+	}
+	eventually(t, "live", func() bool { return c.last("u4").State == protocol.StateLive })
+	events.SendText(`{"t":"key","code":"KeyW","down":true}`)
+	eventually(t, "key down at the sink", func() bool { return u.sink != nil && u.sink.Has("key 0x11 ext=false down=true") })
+	pc.Close()
+	eventually(t, "key released when the peer closed", func() bool { return u.sink.Has("key 0x11 ext=false down=false") })
+	if c.last("u4").State == protocol.StateEnded || c.last("u4").State == protocol.StateFailed {
+		t.Fatalf("session should still be running: %+v", c.last("u4"))
+	}
 }

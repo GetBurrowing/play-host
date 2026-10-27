@@ -45,6 +45,7 @@ import (
 	"github.com/Startup-Suite/play-host/internal/build"
 	"github.com/Startup-Suite/play-host/internal/capture"
 	"github.com/Startup-Suite/play-host/internal/engine"
+	"github.com/Startup-Suite/play-host/internal/inject"
 	"github.com/Startup-Suite/play-host/internal/input"
 	"github.com/Startup-Suite/play-host/internal/launch"
 	"github.com/Startup-Suite/play-host/internal/link"
@@ -141,6 +142,12 @@ type EngineStages interface {
 	// Capture returns the video source for a launched non-Godot game. It runs
 	// the session-0 guard and waits for the game window.
 	Capture(ctx context.Context, p launch.Proc, s protocol.SessionStart) (capture.Source, error)
+}
+
+// InputStages is optionally implemented alongside EngineStages: it builds the
+// injector that delivers browser input to a captured (addon-less) game.
+type InputStages interface {
+	Input(p launch.Proc, src capture.Source) (*inject.Injector, error)
 }
 
 // Host is the engine. It implements suite.Handler.
@@ -432,8 +439,9 @@ type Session struct {
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
-	mediaWG    sync.WaitGroup // the goroutine that feeds the encoder
-	captured   atomic.Int64   // frames seen from a capture Source
+	mediaWG    sync.WaitGroup   // the goroutine that feeds the encoder
+	inj        *inject.Injector // non-Godot engines: input goes here, not over a link
+	captured   atomic.Int64     // frames seen from a capture Source
 	exporting  atomic.Bool
 
 	// peers is touched ONLY on the session loop.
@@ -817,6 +825,14 @@ func (s *Session) run() {
 			return
 		}
 		s.enc.Source = src
+		if is, ok := s.h.stages.(InputStages); ok {
+			inj, err := is.Input(p, src)
+			if err != nil {
+				s.fail(err.Error())
+				return
+			}
+			s.inj = inj
+		}
 		s.logf("capture: %s (%s)", src.Name(), kind)
 		s.goMedia("capture", func() { s.runCapture(src) })
 	}
@@ -1112,6 +1128,10 @@ func (s *Session) setExport(on bool) {
 }
 
 func (s *Session) sendLines(lines []input.Out) {
+	if s.inj != nil {
+		s.inj.Apply(lines)
+		return
+	}
 	if s.link == nil {
 		return
 	}
@@ -1497,6 +1517,10 @@ func (s *Session) cleanup() {
 		err := s.godot.Kill()
 		s.logf("killed godot job pids=%v err=%v", pids, err)
 	}
+	if s.inj != nil {
+		s.inj.Close()
+		s.logf("input injection: %s", s.inj.Counts())
+	}
 	s.exporting.Store(false)
 	waited := make(chan struct{})
 	go func() { s.mediaWG.Wait(); close(waited) }()
@@ -1604,6 +1628,19 @@ func (r *realStages) Capture(ctx context.Context, p launch.Proc, st protocol.Ses
 	cc.Timeout = r.h.cfg.WindowTimeout
 	cc.FPS = st.Encoder.FPS
 	return capture.Start(ctx, cc)
+}
+
+// Input implements InputStages: SendInput and ViGEm aimed at the captured
+// window. It refuses in session 0, like capture.
+func (r *realStages) Input(p launch.Proc, src capture.Source) (*inject.Injector, error) {
+	t, ok := src.(capture.Targeted)
+	if !ok {
+		return nil, fmt.Errorf("input: capture source %s has no window to aim at", src.Name())
+	}
+	fw, fh := src.Size()
+	return inject.NewReal(capture.Real(p.Pids).Env, inject.RealOptions{
+		Client: t.ClientRect, Frame: func() (int, int) { return fw, fh }, Window: t.WindowHandle, Pids: p.Pids, Logf: r.h.logf,
+	})
 }
 
 func (r *realStages) Launch(dir string, st protocol.SessionStart, logPath string) (launch.Proc, error) {
