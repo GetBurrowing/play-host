@@ -105,7 +105,7 @@ func TestFakeWindowStream(t *testing.T) {
 		}
 		return nil
 	}}
-	h, c := newCaptureHost(t, 40370, u, nil)
+	h, c := newCaptureHost(t, 40424, u, nil)
 	h.OnEvent(protocol.EventSessionStart, startPayload("u1", 600))
 	offer := <-c.offer
 	pc, _, pkts := viewer(t, h, offer)
@@ -123,7 +123,7 @@ func TestFakeWindowStream(t *testing.T) {
 
 func TestHostWindowNotFoundFailsSession(t *testing.T) {
 	u := &unrealStages{t: t} // no windows ever
-	h, c := newCaptureHost(t, 40372, u, nil)
+	h, c := newCaptureHost(t, 40426, u, nil)
 	h.OnEvent(protocol.EventSessionStart, startPayload("u2", 600))
 	eventually(t, "failed", func() bool { return c.last("u2").State == protocol.StateFailed })
 	if got := c.last("u2").Detail; got != "game window not found" {
@@ -143,7 +143,7 @@ func TestCaptureStallFailsSession(t *testing.T) {
 	ka := &fakeKeepAwake{}
 	u := &unrealStages{t: t, windows: theWindow}
 	u.pushed = &capture.Pushed{Label: "silent", Run: func(ctx context.Context, _ capture.FrameFunc) error { <-ctx.Done(); return nil }}
-	h, c := newCaptureHost(t, 40374, u, func(cfg *Config) {
+	h, c := newCaptureHost(t, 40428, u, func(cfg *Config) {
 		cfg.FrameStallTimeout = 300 * time.Millisecond
 		cfg.KeepAwake = ka
 	})
