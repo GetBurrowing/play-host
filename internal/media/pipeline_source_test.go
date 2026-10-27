@@ -59,3 +59,28 @@ func TestPipelineArgvComesFromSource(t *testing.T) {
 		t.Fatalf("native source argv:\n %s", got)
 	}
 }
+
+type nvencOnly struct{ nativeSource }
+
+func (nvencOnly) RequiredEncoder() EncoderKind { return EncoderNVENC }
+
+// ddagrab needs NVENC: a libx264 session (or a libx264 fallback) must fail
+// with a clear error instead of running a broken argv.
+func TestNativeSourceRequiresNVENC(t *testing.T) {
+	exe, _ := os.Executable()
+	t.Setenv("FAKE_FFMPEG", "1")
+	p := &Pipeline{FFmpeg: exe, Preset: ControlPreset(), Encoder: EncoderLibx264, RTPPort: 40396, Track: &sink{}, Source: nvencOnly{}}
+	err := p.Start(1280, 720)
+	if err == nil || !strings.Contains(err.Error(), "nvenc") {
+		p.Stop()
+		t.Fatalf("got %v", err)
+	}
+	if p.Running() {
+		t.Fatal("pipeline started anyway")
+	}
+	ok := &Pipeline{FFmpeg: exe, Preset: ControlPreset(), Encoder: EncoderNVENC, RTPPort: 40397, Track: &sink{}, Source: nvencOnly{}}
+	if err := ok.Start(1280, 720); err != nil {
+		t.Fatal(err)
+	}
+	ok.Stop()
+}

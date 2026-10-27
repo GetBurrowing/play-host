@@ -265,6 +265,9 @@ func NewDDAGrab(output int, rect Rect) Source {
 
 func (d *ddaGrab) Name() string { return string(BackendDDAGrab) }
 func (d *ddaGrab) Native() bool { return true }
+
+// RequiredEncoder: ddagrab frames are D3D11 surfaces only NVENC can take.
+func (d *ddaGrab) RequiredEncoder() media.EncoderKind { return media.EncoderNVENC }
 func (d *ddaGrab) Size() (int, int) {
 	return d.rect.W, d.rect.H
 }

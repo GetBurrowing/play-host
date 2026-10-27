@@ -50,7 +50,20 @@ composition. Wake the display and rerun.
 
 ## Backend decision
 
-`ddagrab` is the default when the `ddagrab` filter is listed and the 5 s run
-above prints `exit=0`. Otherwise `wgc` becomes the default and `ddagrab` stays
-selectable. Placeholders in config: `<ffmpeg path>`, `<checkouts dir>`,
+Decided: `ddagrab` is the default. The play-machine probe listed the `ddagrab`
+filter, and with the display held awake the 5 s run encoded 297 frames at 57 fps
+and ffmpeg reported "Exiting with exit code 0". `wgc` stays a recognised value
+but is not built: it returns "not built into this binary".
+
+Two consequences of that probe:
+
+- Keep-awake is required. With the display asleep, Desktop Duplication emitted
+  no frames and the run never exited. The host holds the display awake for the
+  life of a capture session, and the stall watchdog fails a session that still
+  gets no frames.
+- Encode the cropped game window, never the full desktop. Capturing the whole
+  4K desktop ran just under realtime (0.963x). The host crops to the window's
+  client area.
+- ddagrab hands D3D11 frames straight to NVENC, so it needs an NVENC encoder.
+  A session whose encoder resolves to libx264 fails with a clear error. Placeholders in config: `<ffmpeg path>`, `<checkouts dir>`,
 `<logs dir>`.

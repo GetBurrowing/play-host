@@ -3,6 +3,7 @@ package capture
 import (
 	"context"
 	"errors"
+	"github.com/Startup-Suite/play-host/internal/media"
 	"strings"
 	"sync"
 	"testing"
@@ -159,4 +160,12 @@ func TestKeepAwakeFailureSurfaces(t *testing.T) {
 		t.Fatal("a failed SetThreadExecutionState must fail Start")
 	}
 	ka.Stop()
+}
+
+func TestDDAGrabRequiresNVENC(t *testing.T) {
+	src := NewDDAGrab(0, Rect{0, 0, 1280, 720})
+	rq, ok := src.(media.EncoderRequirer)
+	if !ok || rq.RequiredEncoder() != media.EncoderNVENC {
+		t.Fatalf("ddagrab must require nvenc: %v %v", ok, rq)
+	}
 }
