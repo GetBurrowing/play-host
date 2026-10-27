@@ -432,7 +432,8 @@ type Session struct {
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
-	captured   atomic.Int64 // frames seen from a capture Source
+	mediaWG    sync.WaitGroup // the goroutine that feeds the encoder
+	captured   atomic.Int64   // frames seen from a capture Source
 	exporting  atomic.Bool
 
 	// peers is touched ONLY on the session loop.
@@ -800,7 +801,7 @@ func (s *Session) run() {
 			s.fail("webrtc: " + err.Error())
 			return
 		}
-		go s.guard("media", s.readMedia)
+		s.goMedia("media", s.readMedia)
 	} else {
 		detail.Store("Waiting for the game window")
 		src, err := es.Capture(s.ctx, p, s.start)
@@ -817,7 +818,7 @@ func (s *Session) run() {
 		}
 		s.enc.Source = src
 		s.logf("capture: %s (%s)", src.Name(), kind)
-		go s.guard("capture", func() { s.runCapture(src) })
+		s.goMedia("capture", func() { s.runCapture(src) })
 	}
 
 	s.pmu.Lock()
@@ -1447,6 +1448,18 @@ func (s *Session) noteLive(w, h int) {
 	}
 }
 
+// goMedia runs the goroutine that feeds the encoder, tracked so cleanup can
+// wait for it before the final encoder stop: otherwise a frame in flight at
+// the end restarts ffmpeg after cleanup stopped it, and the orphan keeps its
+// log file open (seen as a TempDir cleanup failure on Windows).
+func (s *Session) goMedia(where string, f func()) {
+	s.mediaWG.Add(1)
+	go func() {
+		defer s.mediaWG.Done()
+		s.guard(where, f)
+	}()
+}
+
 func (s *Session) cleanup() {
 	// Run what was queued before the end: an offer that finished gathering
 	// is closed by installPeer (the context is done) instead of leaking.
@@ -1483,6 +1496,17 @@ func (s *Session) cleanup() {
 		pids, _ := s.godot.Pids()
 		err := s.godot.Kill()
 		s.logf("killed godot job pids=%v err=%v", pids, err)
+	}
+	s.exporting.Store(false)
+	waited := make(chan struct{})
+	go func() { s.mediaWG.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(2 * time.Second):
+		s.logf("media goroutine still running at cleanup")
+	}
+	if s.enc != nil {
+		s.enc.Stop()
 	}
 	if s.dir != "" {
 		t0 := time.Now()
