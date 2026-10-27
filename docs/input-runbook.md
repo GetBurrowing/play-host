@@ -37,7 +37,7 @@ is labelled **host_to_photon**: it runs from the host receiving the probe to
 the photon, and it excludes the game's own input-to-render time, which the
 Godot figure included. The two are never compared without that label.
 
-## Install on the play machine (Dalton)
+## Install on the play machine
 
 Run these in the logged-in desktop session, in a normal (non-elevated)
 Command Prompt unless a step says otherwise. Paths are placeholders:
