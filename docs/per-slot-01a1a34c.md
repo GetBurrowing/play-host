@@ -118,14 +118,25 @@ Samples once a second for `-seconds` (0 = one sample) and prints one table:
 
 ## Results (EMPTY: to be filled on host-a / host-b)
 
-NVENC concurrent session cap on the host driver: driver version `____`, cap `____`
-(first refusal at encoder `____`).
+NVENC concurrent session cap on the host driver: driver version `610.47` (host-a, read
+2026-11-03), cap `____` (first refusal at encoder `____`: not reached yet, since no
+per-slot session has run on this driver).
 
 | row | encoder count | NVENC % | VRAM MiB | link MB/s | per-slot p50 ms | per-slot p95 ms | joiner first frame ms |
 |---|---|---|---|---|---|---|---|
+| idle, per_slot on, no session (host-a, 60 s) | 0 / 0 / 0 | 0 / 0 / 0 | 3244 / 3244 / 3244 | n/a (no session) | n/a | n/a | n/a |
+| idle, per_slot on, no session (host-b, 5 s) | 0 / 0 / 0 | n/a (no nvidia-smi; videotoolbox) | n/a | n/a (no session) | n/a | n/a | n/a |
 | control, per_slot off, 1 viewer | | | | | | | |
 | 2-slot + 1 spectator | | | | | | | |
 | 4-slot + 1 spectator | | | | | | | |
+
+Idle rows (2026-11-03, commit b27021b, both hosts running `serve` with `per_slot: true`
+and reconnected to the install, which listed `game_stream_per_slot` for each): the cells are
+`play-host bench -seconds N` summary min / median / max. They are the host at rest, with no
+session and therefore no encoders. They are **not** the control, 2-slot or 4-slot rows. Those
+rows need a live session with joined players and the CDP driver (steps 3-6), and are still
+empty. The 3244 MiB on host-a is VRAM held by other GPU users on that machine; it is not
+play-host's.
 
 ## Acceptance rule
 
