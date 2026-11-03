@@ -223,6 +223,7 @@ func _touch_suite() -> void:
 		await _touch_row(row, first)
 		first = false
 	await _touch_release()
+	await _view_suite()
 	print("SELFTEST %s (%d failures)" % ["PASS" if failures.is_empty() else "FAIL", failures.size()])
 	quit(0 if failures.is_empty() else 1)
 
@@ -397,3 +398,148 @@ func _touch_release() -> void:
 		if g[0] == "st" and not g[2]:
 			lifted.append([g[1], g[3], g[5]])
 	_check(lifted == [[0, true, 0]], "release_all sends a canceled touch for index 0, meta slot 0: %s" % [lifted])
+
+
+## ---- Per-view export (task 01a1a358 stage 3) ----
+##
+## SPF1 stays the root fallback; register_slot_view / register_shared_view
+## switch export to one SPF2 record per registered SubViewport (24 byte header,
+## view 0 shared, 1 + slot). Headers are read off a real loopback socket the
+## addon writes to. Touch for a slot with a registered view is pushed into that
+## SubViewport (a Control inside it receives it, the root does not); a slot
+## without one keeps the root path.
+func _read_n(peer: StreamPeerTCP, n: int) -> PackedByteArray:
+	var buf := PackedByteArray()
+	for _i in 300:
+		peer.poll()
+		var avail := peer.get_available_bytes()
+		if avail > 0:
+			var got := peer.get_partial_data(mini(avail, n - buf.size()))
+			buf.append_array(got[1])
+		if buf.size() >= n:
+			break
+		await process_frame
+	return buf
+
+
+## One frame record -> [magic, w, h, kind, length, view (-1 for SPF1)], payload consumed.
+func _read_record(peer: StreamPeerTCP) -> Array:
+	var h := await _read_n(peer, 20)
+	if h.size() < 20:
+		return []
+	var magic := h.slice(0, 4).get_string_from_ascii()
+	var rec := [magic, h.decode_u32(4), h.decode_u32(8), h.decode_u32(12), h.decode_u32(16), -1]
+	if magic == "SPF2":
+		var tail := await _read_n(peer, 4)
+		rec[5] = tail.decode_u32(0) if tail.size() == 4 else -2
+	await _read_n(peer, int(rec[4]))
+	return rec
+
+
+func _view_suite() -> void:
+	var srv := TCPServer.new()
+	_check(srv.listen(0, "127.0.0.1") == OK, "views: loopback listener")
+	var cli := StreamPeerTCP.new()
+	cli.connect_to_host("127.0.0.1", srv.get_local_port())
+	for _i in 300:
+		if srv.is_connection_available():
+			break
+		await process_frame
+	var far: StreamPeerTCP = srv.take_connection()
+	for _i in 300:
+		cli.poll()
+		if cli.get_status() == StreamPeerTCP.STATUS_CONNECTED:
+			break
+		await process_frame
+	_sp._peer = cli
+	_sp.exporting = true
+	_sp.export_mode = "image"
+	_sp.image_source = func(vp: Viewport) -> Image:
+		return Image.create_empty(vp.size.x, vp.size.y, false, Image.FORMAT_RGBA8)
+
+	# Nothing registered: SPF1, exactly today's 20 byte header.
+	_sp._send_frame(4, 4, 1, PackedByteArray(range(64)))
+	var raw := await _read_n(far, 20)
+	_check(raw.slice(0, 4).get_string_from_ascii() == "SPF1" and raw.decode_u32(4) == 4 and raw.decode_u32(8) == 4 and raw.decode_u32(12) == 1 and raw.decode_u32(16) == 64, "views: nothing registered -> _send_frame writes SPF1 (20 byte header): %s" % [raw.hex_encode()])
+	var body := await _read_n(far, 64)
+	_check(body.size() == 64 and body[0] == 0 and far.get_available_bytes() == 0, "views: the SPF1 payload follows the 20 byte header directly (no view word)")
+
+	# Register slot 2 and the shared view; one SPF2 record each, no root frame.
+	var vs := SubViewport.new()
+	vs.size = Vector2i(64, 48)
+	vs.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vs)
+	var vh := SubViewport.new()
+	vh.size = Vector2i(32, 24)
+	vh.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vh)
+	_sp.register_slot_view(2, vs)
+	_sp.register_shared_view(vh)
+	await _frames_wait(2)
+	_check(vs.get_child_count() == 1 and vs.get_child(0) is CanvasLayer and vh.get_child_count() == 1, "views: the addon put its own marker CanvasLayer into each registered SubViewport")
+	_sp.show_probe(5)
+	var v: int = (5 << 4) | _sp.check(5)
+	var ok := true
+	for view_id in [3, 0]:
+		var cells: Array = _sp._view_cells[view_id]
+		for i in cells.size():
+			ok = ok and (cells[i].color == Color.WHITE) == (((v >> (15 - i)) & 1) == 1)
+	_check(ok and _sp._view_cells.size() == 2, "views: show_probe(5) paints the same marker (0x%04X) in every registered view" % v)
+	_sp._on_frame_post_draw()
+	var r1 := await _read_record(far)
+	var r2 := await _read_record(far)
+	print("INFO views: records %s %s" % [r1, r2])
+	_check(r1.size() > 0 and r1[0] == "SPF2" and r1[5] == 0 and r1[1] == 32 and r1[2] == 24, "views: shared view -> SPF2 view 0 at its own size (%s)" % [r1])
+	_check(r2.size() > 0 and r2[0] == "SPF2" and r2[5] == 3 and r2[1] == 64 and r2[2] == 48, "views: slot 2 -> SPF2 header carries view 1+slot = 3 at its own size (%s)" % [r2])
+	_check(far.get_available_bytes() == 0, "views: no third record, the root is not exported when views are registered")
+	# unregister -> marker gone, view no longer exported.
+	_sp.unregister_view(vh)
+	_check(vh.get_child_count() == 0 and not _sp._views.has(0), "views: unregister_view removes the marker and the view")
+	_sp._on_frame_post_draw()
+	var r3 := await _read_record(far)
+	_check(r3.size() > 0 and r3[5] == 3 and far.get_available_bytes() == 0, "views: after unregistering the shared view only slot 2 is exported (%s)" % [r3])
+	_sp.unregister_view(vs)
+	_check(vs.get_child_count() == 0 and _sp._views.is_empty(), "views: all unregistered -> back to the root fallback")
+	_sp._on_frame_post_draw()
+	var r4 := await _read_record(far)
+	_check(r4.size() > 0 and r4[0] == "SPF1" and r4[5] == -1, "views: with nothing registered the post-draw export is the root as SPF1 (%s)" % [r4])
+	_sp.exporting = false
+	_sp._peer = null
+
+	# Touch: slot 1 has a SubViewport; slot 0 does not.
+	var gd := GDScript.new()
+	gd.source_code = "extends Control\nvar got: Array = []\nfunc _gui_input(e: InputEvent) -> void:\n\tif e is InputEventScreenTouch:\n\t\tgot.append([e.index, e.pressed, e.position, e.get_meta(&\"burrow_play_slot\", -1)])\n"
+	gd.reload()
+	var sv := SubViewport.new()
+	sv.size = Vector2i(200, 100)
+	root.add_child(sv)
+	var pane: Control = gd.new()
+	pane.mouse_filter = Control.MOUSE_FILTER_STOP
+	pane.size = Vector2(200, 100)
+	sv.add_child(pane)
+	_sp.register_slot_view(1, sv)
+	_touch_rec.got.clear()
+	await _frames_wait(2)
+	_sp.handle_line('{"t":"st","d":1,"i":10,"p":true,"c":false,"x":0.5,"y":0.25}')
+	_sp.handle_line('{"t":"st","d":1,"i":10,"p":false,"c":false,"x":0.5,"y":0.25}')
+	await _flush()
+	print("INFO views: SubViewport Control got %s; root got %d event(s)" % [pane.got, _touch_rec.got.size()])
+	_check(pane.got.size() == 2 and pane.got[0][0] == 10 and pane.got[0][1] and not pane.got[1][1], "views: slot 1's touch lands in its SubViewport (a Control inside receives the InputEventScreenTouch down+up): %s" % [pane.got])
+	_check(not pane.got.is_empty() and (pane.got[0][2] as Vector2).distance_to(Vector2(100, 25)) <= 0.5 and pane.got[0][3] == 1, "views: position is x,y * SubViewport size = (100, 25), slot meta 1")
+	_check(_touch_rec.got.is_empty(), "views: ...and not in the root window (%d root events)" % _touch_rec.got.size())
+	# A slot without a view keeps the root path.
+	pane.got.clear()
+	_sp.handle_line('{"t":"st","d":0,"i":0,"p":true,"c":false,"x":0.5,"y":0.5}')
+	_sp.handle_line('{"t":"st","d":0,"i":0,"p":false,"c":false,"x":0.5,"y":0.5}')
+	await _flush()
+	_check(pane.got.is_empty() and _touch_rec.got.size() >= 2, "views: slot 0 (no registered view) still goes to the root window (root %d, subviewport %d)" % [_touch_rec.got.size(), pane.got.size()])
+	# release_device lifts a SubViewport touch inside that SubViewport.
+	pane.got.clear()
+	_sp.handle_line('{"t":"st","d":1,"i":10,"p":true,"c":false,"x":0.1,"y":0.1}')
+	_sp.handle_line('{"t":"release","d":1}')
+	await _flush()
+	var canceled := false
+	for g in pane.got:
+		canceled = canceled or (g[0] == 10 and not g[1])
+	_check(canceled and _sp.held_touches().is_empty(), "views: release d:1 lifts the held touch inside the SubViewport: %s" % [pane.got])
+	_sp.unregister_view(sv)
