@@ -2,6 +2,7 @@ package media
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -50,6 +51,10 @@ type view struct {
 type ViewSet struct {
 	newPipeline func(view int) (Encoder, *webrtc.TrackLocalStaticRTP)
 	dropped     atomic.Int64
+
+	// OnStart, if set, is called after a view's encoder starts on its first
+	// frame (under the set's lock: log only).
+	OnStart func(id, w, h int)
 
 	mu    sync.Mutex
 	views map[int]view
@@ -125,6 +130,9 @@ func (vs *ViewSet) Write(id, w, h int, frame []byte) error {
 			}
 			return err
 		}
+		if vs.OnStart != nil {
+			vs.OnStart(id, w, h)
+		}
 	}
 	vs.mu.Unlock()
 	return v.enc.WriteFrame(frame)
@@ -143,4 +151,16 @@ func (vs *ViewSet) StopAll() {
 	for _, e := range encs {
 		e.Stop()
 	}
+}
+
+// IDs lists the view ids that exist, shared view included, ascending.
+func (vs *ViewSet) IDs() []int {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	out := make([]int, 0, len(vs.views))
+	for id := range vs.views {
+		out = append(out, id)
+	}
+	sort.Ints(out)
+	return out
 }

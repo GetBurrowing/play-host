@@ -104,6 +104,7 @@ type Peer struct {
 	pc    *webrtc.PeerConnection
 	Track webrtc.TrackLocal
 	cb    Callbacks
+	video *webrtc.RTPSender // tracks[0]'s sender, for ReplaceVideoTrack
 
 	mu        sync.Mutex
 	closed    bool
@@ -111,6 +112,15 @@ type Peer struct {
 	remoteSet bool
 	queued    []webrtc.ICECandidateInit
 	dcTimer   *time.Timer
+}
+
+// ReplaceVideoTrack swaps the video track on the existing connection (pion
+// RTPSender.ReplaceTrack): no renegotiation, no new offer.
+func (p *Peer) ReplaceVideoTrack(t webrtc.TrackLocal) error {
+	if p == nil || p.video == nil {
+		return errors.New("peer has no video sender")
+	}
+	return p.video.ReplaceTrack(t)
 }
 
 // NewAPI builds a pion API from cfg. Every peer binds its own socket in the
@@ -264,11 +274,14 @@ func NewPeerGatherTracks(api *webrtc.API, cfg Config, tracks []webrtc.TrackLocal
 		return nil, "", g, err
 	}
 	p := &Peer{pc: pc, Track: tracks[0], cb: cb}
-	for _, track := range tracks {
+	for i, track := range tracks {
 		tr, err := pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 		if err != nil {
 			pc.Close()
 			return nil, "", g, err
+		}
+		if i == 0 {
+			p.video = tr.Sender()
 		}
 		go p.readRTCP(tr.Sender())
 	}

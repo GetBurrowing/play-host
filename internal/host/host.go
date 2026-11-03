@@ -414,6 +414,7 @@ type Session struct {
 	audioTrack *webrtc.TrackLocalStaticRTP
 	enc        *media.Pipeline
 	views      *media.ViewSet // nil unless cfg.PerSlot; shared view 0 is enc
+	slotViews  map[int]bool   // slots with a view in views; loop only
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
@@ -445,6 +446,14 @@ type peerState struct {
 	in        *input.Binding
 	connected bool // loop only
 	closed    atomic.Bool
+
+	// Per-slot video (task 01a1a358): view is the media view this peer
+	// should carry (0 shared, 1+slot); bound is the one its connection
+	// carries now. They differ only while the offer is still gathering.
+	// Loop only (bound is also read by the gather goroutine, which runs
+	// before installPeer can change it).
+	view  int
+	bound int
 
 	drops      atomic.Int64 // since the last drop log line
 	dropsTotal atomic.Int64
@@ -559,6 +568,15 @@ func (s *Session) resume() {
 		sort.Strings(ids)
 		s.logf("suite reconnected: resuming %s with %d peer(s), re-offering %d", state, len(s.peers), len(reoffer))
 		s.h.push(protocol.EventSessionStatus, protocol.NewResumeStatus(protocol.NewStatus(s.ID(), state, detail, s.elapsed()), ids))
+		// Per-slot: one view per peer that keeps its connection. A peer that
+		// is re-offered announces its view when the new offer is installed.
+		if s.views != nil {
+			for _, id := range ids {
+				if ps := s.peers[id]; ps != nil && ps.connected && ps.peer != nil {
+					s.emitView(ps)
+				}
+			}
+		}
 		for _, ps := range reoffer {
 			if s.peers[ps.id] == ps {
 				s.openPeer(ps.id, ps.seq)
@@ -699,6 +717,123 @@ func (s *Session) reconcile() {
 		s.logSlotChanges(ps, bound, unbound)
 		s.sendLines(lines)
 	}
+	if s.views != nil {
+		s.syncViews(table)
+	}
+}
+
+// slotOf is the slot peer id's connection should show: its lowest slot in
+// table (0..MaxViewSlot), or -1 for a spectator and for the v1 peer.
+func slotOf(table map[string]map[int]int, id string) int {
+	if id == "" {
+		return -1
+	}
+	low := -1
+	for _, sl := range table[id] {
+		if sl >= 0 && sl <= protocol.MaxViewSlot && (low < 0 || sl < low) {
+			low = sl
+		}
+	}
+	return low
+}
+
+func slotViewOf(slot int) int {
+	if slot < 0 {
+		return media.SharedView
+	}
+	return media.SlotView(slot)
+}
+
+// syncViews makes the view set and every peer's track match table: views
+// for every joined slot exist, a peer whose lowest slot changed swaps its
+// track on the existing connection (never a re-offer), and views no slot
+// holds any more are dropped. Loop only.
+func (s *Session) syncViews(table map[string]map[int]int) {
+	held := map[int]bool{}
+	for _, m := range table {
+		for _, sl := range m {
+			if sl >= 0 && sl <= protocol.MaxViewSlot {
+				held[sl] = true
+			}
+		}
+	}
+	for sl := range held {
+		s.ensureView(sl)
+	}
+	ids := make([]string, 0, len(s.peers))
+	for id := range s.peers {
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		ps := s.peers[id]
+		nv := slotViewOf(slotOf(table, id))
+		if nv == ps.view {
+			continue
+		}
+		ps.view = nv
+		if ps.peer == nil || nv == ps.bound {
+			continue // still gathering: installPeer swaps and announces
+		}
+		if err := ps.peer.ReplaceVideoTrack(s.videoTrack(nv)); err != nil {
+			s.logf("peer %s: replace video track: %v", ps.name(), err)
+			ps.view = ps.bound
+			continue
+		}
+		ps.bound = nv
+		s.logf("peer %s: video track swapped to %s", ps.name(), viewName(nv))
+		s.emitView(ps)
+	}
+	for sl := range s.slotViews {
+		if !held[sl] {
+			s.views.Drop(sl)
+			delete(s.slotViews, sl)
+			s.logf("slot %d view dropped: encoder stopped", sl)
+		}
+	}
+}
+
+func viewName(v int) string {
+	if v == media.SharedView {
+		return "shared"
+	}
+	return fmt.Sprintf("slot %d", v-1)
+}
+
+func (s *Session) ensureView(slot int) {
+	if s.slotViews == nil {
+		s.slotViews = map[int]bool{}
+	}
+	if !s.slotViews[slot] {
+		s.views.Ensure(slot)
+		s.slotViews[slot] = true
+	}
+}
+
+// videoTrack is the track for view v; the shared track when per_slot is off
+// or the view is gone.
+func (s *Session) videoTrack(v int) webrtc.TrackLocal {
+	if s.views != nil {
+		if t := s.views.Track(v); t != nil {
+			return t
+		}
+	}
+	return s.track
+}
+
+// emitView pushes play_peer_view for ps's bound view. Never for the v1 peer.
+func (s *Session) emitView(ps *peerState) {
+	if s.views == nil || ps.id == "" || len(ps.id) > 64 {
+		return
+	}
+	pv := protocol.PeerView{SessionID: s.ID(), PeerID: ps.id, View: protocol.ViewShared}
+	if ps.bound != media.SharedView {
+		sl := ps.bound - 1
+		pv.View, pv.Slot = protocol.ViewSlot, &sl
+	}
+	s.h.push(protocol.EventPeerView, pv)
 }
 
 func (s *Session) run() {
@@ -851,6 +986,9 @@ func (s *Session) setupMedia() error {
 			return &media.Pipeline{FFmpeg: s.h.cfg.FFmpeg, Preset: preset, Encoder: encoder, Fallback: s.h.cfg.EncoderFallback, Track: slotTrack,
 				LogPath: filepath.Join(s.h.cfg.LogsDir, fmt.Sprintf("ffmpeg-%s-slot%d.log", s.ID(), view-1)), Counts: &media.Counters{}}, slotTrack
 		})
+		s.views.OnStart = func(id, w, h int) {
+			s.logf("encoder started video=%dx%d view=%d (slot encoder)", w, h, id)
+		}
 	}
 	return nil
 }
@@ -875,6 +1013,16 @@ func (s *Session) openPeer(id string, seq int) {
 		s.closePeer(old)
 	}
 	ps := &peerState{id: id, seq: seq}
+	if s.views != nil && id != "" {
+		s.pmu.Lock()
+		sl := slotOf(s.table, id)
+		s.pmu.Unlock()
+		if sl >= 0 {
+			s.ensureView(sl)
+		}
+		ps.view = slotViewOf(sl)
+		ps.bound = ps.view
+	}
 	if id == "" {
 		ps.in = input.NewV1Binding()
 	} else {
@@ -902,7 +1050,7 @@ func (s *Session) gatherOffer(ps *peerState) {
 		var p *rtc.Peer
 		var offer string
 		var g rtc.Gather
-		p, offer, g, err = newPeerGather(s.api, s.rtcCfg, []webrtc.TrackLocal{s.track, s.audioTrack}, s.callbacks(ps, holder))
+		p, offer, g, err = newPeerGather(s.api, s.rtcCfg, []webrtc.TrackLocal{s.videoTrack(ps.bound), s.audioTrack}, s.callbacks(ps, holder))
 		if err == nil {
 			if !s.post(func() { s.installPeer(ps, holder, p, offer, g) }) {
 				p.Close() // the session ended while it gathered
@@ -981,6 +1129,16 @@ func (s *Session) installPeer(ps *peerState, holder **rtc.Peer, p *rtc.Peer, off
 	*holder = p
 	ps.peer = p
 	s.logf("offer (peer %s): %s", ps.name(), g)
+	if s.views != nil && ps.view != ps.bound {
+		// The slot table moved while the offer gathered: the offered track is
+		// stale, swap it before anyone answers (still no re-offer).
+		if err := p.ReplaceVideoTrack(s.videoTrack(ps.view)); err != nil {
+			s.logf("peer %s: replace video track: %v", ps.name(), err)
+			ps.view = ps.bound
+		} else {
+			ps.bound = ps.view
+		}
+	}
 	sig, err := protocol.NewOfferSignal(s.ID(), ps.id, offer)
 	if err != nil {
 		s.offerFailed(ps, err)
@@ -999,6 +1157,7 @@ func (s *Session) installPeer(ps *peerState, holder **rtc.Peer, p *rtc.Peer, off
 		s.status(protocol.StateConnecting, "Waiting for the viewer")
 	}
 	s.h.push(protocol.EventSignal, sig)
+	s.emitView(ps)
 }
 
 // offerFailed: every attempt failed. The v1 peer is the only viewer, so the
@@ -1072,6 +1231,9 @@ func (s *Session) mediaCheck() {
 	case n == 0 && s.exporting.Load():
 		s.setExport(false)
 		s.enc.Stop()
+		if s.views != nil {
+			s.views.StopAll()
+		}
 		s.audio.Stop()
 		s.logf("no connected peer: encoder and export stopped (audio stopped)")
 	}
@@ -1313,6 +1475,18 @@ func (s *Session) readMedia() {
 		if err := s.enc.WriteFrame(rec.Data); err != nil {
 			s.logf("encoder write: %v", err)
 			continue
+		}
+		if s.views != nil {
+			// Per-slot: an unmodified game sends one SPF1 stream, so every
+			// slot view shows the same picture.
+			for _, id := range s.views.IDs() {
+				if id == media.SharedView {
+					continue
+				}
+				if err := s.views.Write(id, int(h.Width), int(h.Height), rec.Data); err != nil {
+					s.logf("view %d: %v", id, err)
+				}
+			}
 		}
 		if s.enc.Counts.Packets.Load() > 0 && !s.liveSent.Swap(true) {
 			p := s.start.Encoder
