@@ -109,10 +109,10 @@ Samples once a second for `-seconds` (0 = one sample) and prints one table:
    `node spike/driver/run-probes-multi.mjs --cdp 127.0.0.1:9223 --app <core url> --canvas
    <canvas uuid> --players 2 --spectators 1 --n 50 --jitter-ms 34 --label ps2 --out
    results/ps2.json`.
-6. While the driver is probing, on host-a: `play-host bench -config <config.json> -seconds
-   60 -driver results/ps2.json`. (Start bench first if the driver needs longer than the
-   sampling window; the driver table is read when bench exits, so run bench after the driver
-   finishes for the latency columns and during it for the cost columns, or run it twice.)
+6. Run `play-host bench -config <config.json> -seconds 60` on host-a while the driver is
+   probing (the cost columns), then `play-host bench -config <config.json> -seconds 0
+   -driver results/ps2.json` once the driver has written its file (the per-slot latency and
+   joiner first frame columns).
 7. Run the 1-viewer control with `per_slot` off the same day. Paste each bench output into
    the table below, with the driver version, date and commit.
 
