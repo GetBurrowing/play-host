@@ -30,6 +30,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -418,6 +419,7 @@ type Session struct {
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
+	badRecords atomic.Int64 // malformed-but-skipped addon records
 	exporting  atomic.Bool
 
 	// peers is touched ONLY on the session loop.
@@ -1448,6 +1450,14 @@ func (s *Session) readMedia() {
 	for {
 		rec, b, err := s.link.ReadRecord(buf)
 		buf = b
+		if errors.Is(err, link.ErrBadRecord) {
+			// The reader consumed the record: the link is still in sync.
+			// Log and count it once, never fail the session.
+			if n := s.badRecords.Add(1); n == 1 {
+				s.logf("dropped malformed addon record: %v (further ones are counted, not logged)", err)
+			}
+			continue
+		}
 		if err != nil {
 			if s.ctx.Err() == nil {
 				s.fail("addon link: " + err.Error())
@@ -1465,6 +1475,15 @@ func (s *Session) readMedia() {
 			continue
 		}
 		h := rec.Frame
+		if rec.SPF2 && h.View != 0 {
+			// SPF2 slot frame: only that slot's view (per-slot only).
+			if s.views != nil {
+				if err := s.views.Write(int(h.View), int(h.Width), int(h.Height), rec.Data); err != nil {
+					s.logf("view %d: %v", h.View, err)
+				}
+			}
+			continue
+		}
 		if !s.enc.Running() {
 			if err := s.enc.Start(int(h.Width), int(h.Height)); err != nil {
 				s.fail("encoder: " + err.Error())
@@ -1476,7 +1495,7 @@ func (s *Session) readMedia() {
 			s.logf("encoder write: %v", err)
 			continue
 		}
-		if s.views != nil {
+		if s.views != nil && !rec.SPF2 {
 			// Per-slot: an unmodified game sends one SPF1 stream, so every
 			// slot view shows the same picture.
 			for _, id := range s.views.IDs() {

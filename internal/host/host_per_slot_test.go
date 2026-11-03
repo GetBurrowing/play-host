@@ -1,6 +1,7 @@
 package host
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -253,5 +254,47 @@ func TestPeerViewJSONShape(t *testing.T) {
 		if string(b) != tc.want {
 			t.Errorf("got %s, want %s", b, tc.want)
 		}
+	}
+}
+
+// An SPF2 record with an out-of-range view is skipped whole: logged and
+// counted once, the link stays in sync, and the next SPF1 frame still
+// reaches the shared pipeline.
+func TestPerSlotMalformedSPF2ViewIsDroppedLinkAlive(t *testing.T) {
+	rtc.DisconnectGrace = 200 * time.Millisecond
+	lr := &logRec{t: t}
+	st := &fakeStages{t: t, port: 40440, prepared: make(chan struct{})}
+	h, c := newTestHostLog(t, 40440, st, lr.logf)
+	h.cfg.PerSlot = true
+	t.Cleanup(func() { stopAndWait(t, h, "ps9") })
+	h.OnEvent(protocol.EventSessionStart, startPayload("ps9", 600))
+	peerOpen(h, "ps9", "p1")
+	slots(h, "ps9", 4, map[string]map[string]int{"p1": {}})
+	a := attach(t, h, c, "p1", 0)
+	growing(t, "RTP before the bad record", a.pkts)
+
+	hdr := make([]byte, 24)
+	copy(hdr, "SPF2")
+	binary.LittleEndian.PutUint32(hdr[4:], 64)
+	binary.LittleEndian.PutUint32(hdr[8:], 48)
+	binary.LittleEndian.PutUint32(hdr[12:], 1)
+	binary.LittleEndian.PutUint32(hdr[16:], 64*48*4)
+	binary.LittleEndian.PutUint32(hdr[20:], 40)
+	bad := append(hdr, make([]byte, 64*48*4)...)
+	for i := 0; i < 3; i++ {
+		st.game.inject <- bad
+	}
+	eventually(t, "bad records logged", func() bool { return lr.count("dropped malformed addon record") == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if n := lr.count("dropped malformed addon record"); n != 1 {
+		t.Fatalf("logged %d times, want once", n)
+	}
+	if n := h.Current().badRecords.Load(); n != 3 {
+		t.Fatalf("counted %d, want 3", n)
+	}
+	before := a.pkts.Load()
+	eventually(t, "SPF1 still reaches the pipeline", func() bool { return a.pkts.Load() > before+5 })
+	if n := lr.count("addon link:"); n != 0 {
+		t.Fatalf("link failed: %v", lr.find("addon link:"))
 	}
 }

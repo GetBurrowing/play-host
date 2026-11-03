@@ -78,6 +78,7 @@ type fakeGame struct {
 	done    chan struct{}
 	exitNow chan int
 	killed  atomic.Bool
+	inject  chan []byte // raw bytes written to the link between frames
 }
 
 func startFakeGame(t *testing.T, port int) *fakeGame {
@@ -85,7 +86,7 @@ func startFakeGame(t *testing.T, port int) *fakeGame {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := &fakeGame{ln: ln, done: make(chan struct{}), exitNow: make(chan int, 1)}
+	g := &fakeGame{ln: ln, done: make(chan struct{}), exitNow: make(chan int, 1), inject: make(chan []byte, 8)}
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
@@ -121,6 +122,10 @@ func startFakeGame(t *testing.T, port int) *fakeGame {
 			select {
 			case <-g.done:
 				return
+			case b := <-g.inject:
+				if _, err := c.Write(b); err != nil {
+					return
+				}
 			case <-t.C:
 				if g.export.Load() {
 					if _, err := c.Write(append(append([]byte(nil), hdr...), frame...)); err != nil {

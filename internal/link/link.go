@@ -6,6 +6,7 @@ package link
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,6 +28,9 @@ type Record struct {
 	Frame *FrameHeader
 	PCM   *PCMHeader
 	Data  []byte
+	// SPF2 is true when Frame came from an SPF2 header (Frame.View is then
+	// authoritative; an SPF1 frame belongs to every view).
+	SPF2 bool
 }
 
 // Dial connects to the addon, retrying until deadline (Godot takes a few
@@ -85,7 +89,7 @@ func (l *Link) ReadFrame(buf []byte) (FrameHeader, []byte, error) {
 	return h, buf, nil
 }
 
-// ReadRecord reads one SPF1 video or SPA1 PCM record from the shared stream.
+// ReadRecord reads one SPF1/SPF2 video or SPA1 PCM record from the shared stream.
 func (l *Link) ReadRecord(buf []byte) (Record, []byte, error) {
 	magic, err := l.r.Peek(4)
 	if err != nil {
@@ -94,12 +98,19 @@ func (l *Link) ReadRecord(buf []byte) (Record, []byte, error) {
 	var length uint32
 	rec := Record{}
 	switch [4]byte(magic) {
-	case frameMagic:
+	case frameMagic, frameMagic2:
 		h, err := ReadFrameHeader(l.r)
 		if err != nil {
+			if errors.Is(err, ErrBadRecord) {
+				// Header consumed, extent known: discard the payload so the
+				// next record parses, and report a non-fatal error.
+				if _, derr := io.CopyN(io.Discard, l.r, int64(h.Length)); derr != nil {
+					return Record{}, buf, derr
+				}
+			}
 			return Record{}, buf, err
 		}
-		rec.Frame, length = &h, h.Length
+		rec.Frame, rec.SPF2, length = &h, [4]byte(magic) == frameMagic2, h.Length
 	case pcmMagic:
 		h, err := ReadPCMHeader(l.r)
 		if err != nil {
