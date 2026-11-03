@@ -1,6 +1,7 @@
 // Command play-host serves a Godot build to one browser over WebRTC.
 //
 //	play-host serve -config /path/to/config.json   (the Burrow play host)
+//	play-host bench [-seconds N] [-driver f]       (per-slot cost sampler)
 //	play-host spike [flags]                        (the frame-path harness)
 package main
 
@@ -30,8 +31,14 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "bench" {
+		if err := benchCmd(os.Args[2:]); err != nil {
+			log.Fatalf("bench: %v", err)
+		}
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "spike" {
-		fmt.Fprintln(os.Stderr, "usage: play-host serve -config <config.json> | play-host spike [flags]")
+		fmt.Fprintln(os.Stderr, "usage: play-host serve -config <config.json> | play-host bench [-config f] [-seconds N] [-driver results.json] | play-host spike [flags]")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("spike", flag.ExitOnError)

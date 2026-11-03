@@ -20,6 +20,7 @@ Layout:
   It reads `--burrow-play-*` user args and the older `--suite-play-*` ones; the host emits both.
 - `spike/godot` - throwaway scene; `spike/driver` - CDP latency driver.
 - `docs/spike-01a0db5f.md` - stage 1 findings.
+- `docs/per-slot-01a1a34c.md` - per_slot cost sheet and procedure; `play-host bench [-config f] [-seconds N] [-driver results.json]` samples encoder count, NVENC, VRAM and per-slot latency.
 
 Input (`internal/input`): browser `key`, `pad`, `probe`, `release_all` and,
 since task 01a0fe45, `touch` messages become addon lines. A touch
