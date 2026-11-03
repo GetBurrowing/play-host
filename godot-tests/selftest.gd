@@ -455,7 +455,10 @@ func _view_suite() -> void:
 	_sp.exporting = true
 	_sp.export_mode = "image"
 	_sp.image_source = func(vp: Viewport) -> Image:
-		return Image.create_empty(vp.size.x, vp.size.y, false, Image.FORMAT_RGBA8)
+		# The root is left small: put_data blocks on a full socket and the
+		# reader is this same thread.
+		var sz: Vector2i = Vector2i(8, 8) if vp == root else Vector2i((vp as SubViewport).size)
+		return Image.create_empty(sz.x, sz.y, false, Image.FORMAT_RGBA8)
 
 	# Nothing registered: SPF1, exactly today's 20 byte header.
 	_sp._send_frame(4, 4, 1, PackedByteArray(range(64)))
@@ -502,7 +505,7 @@ func _view_suite() -> void:
 	_check(vs.get_child_count() == 0 and _sp._views.is_empty(), "views: all unregistered -> back to the root fallback")
 	_sp._on_frame_post_draw()
 	var r4 := await _read_record(far)
-	_check(r4.size() > 0 and r4[0] == "SPF1" and r4[5] == -1, "views: with nothing registered the post-draw export is the root as SPF1 (%s)" % [r4])
+	_check(r4.size() > 0 and r4[0] == "SPF1" and r4[5] == -1 and r4[1] == 8, "views: with nothing registered the post-draw export is the root as SPF1 (%s)" % [r4])
 	_sp.exporting = false
 	_sp._peer = null
 
