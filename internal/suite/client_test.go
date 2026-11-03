@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -351,5 +352,33 @@ func TestFeaturesOverrideDropsTouch(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("override %v", got)
+	}
+}
+
+func TestFeaturesPerSlotTable(t *testing.T) {
+	cases := []struct {
+		name     string
+		perSlot  bool
+		features []string
+		want     []string
+	}{
+		{"off", false, nil, []string{Feature, FeatureMulti, FeatureTouch}},
+		{"on", true, nil, []string{Feature, FeatureMulti, FeatureTouch, FeaturePerSlot}},
+		{"on, dev list lacking multi", true, []string{Feature}, []string{Feature}},
+		{"on, dev list with multi", true, []string{Feature, FeatureMulti}, []string{Feature, FeatureMulti, FeaturePerSlot}},
+		{"off, dev list", false, []string{Feature}, []string{Feature}},
+	}
+	for _, tc := range cases {
+		var logs []string
+		c := New(Config{URL: "ws://x", RuntimeID: "r", Features: tc.features, PerSlot: tc.perSlot,
+			Logf: func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }}, nil)
+		got := c.features()
+		c.features()
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s: features = %v, want %v", tc.name, got, tc.want)
+		}
+		if tc.name == "on, dev list lacking multi" && len(logs) != 1 {
+			t.Fatalf("%s: warning logged %d times, want once", tc.name, len(logs))
+		}
 	}
 }

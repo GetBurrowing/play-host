@@ -93,6 +93,12 @@ type Config struct {
 	// releases included (task 01a0fe45 stage 5). DEV RIGS ONLY: a held
 	// drag is up to 60 lines/s per finger. Config key "log_touch".
 	LogTouch bool
+	// PerSlot builds a media.ViewSet (shared view plus one encoder per
+	// joined slot) in setupMedia; false builds today's single pipeline only.
+	// PerSlotBitrateKbps overrides each slot encoder's bitrate (0 = the
+	// session preset's). Config keys "per_slot", "per_slot_bitrate_kbps".
+	PerSlot            bool
+	PerSlotBitrateKbps int
 }
 
 // DefaultResumeGrace bounds a suite reconnect that keeps the session. Core's
@@ -407,6 +413,7 @@ type Session struct {
 	track      *webrtc.TrackLocalStaticRTP
 	audioTrack *webrtc.TrackLocalStaticRTP
 	enc        *media.Pipeline
+	views      *media.ViewSet // nil unless cfg.PerSlot; shared view 0 is enc
 	audio      *media.AudioPipeline
 	events     chan func()
 	liveSent   atomic.Bool
@@ -824,6 +831,27 @@ func (s *Session) setupMedia() error {
 		LogPath: filepath.Join(s.h.cfg.LogsDir, "ffmpeg-"+s.ID()+".log"), Counts: &media.Counters{}}
 	s.audio = &media.AudioPipeline{FFmpeg: s.h.cfg.FFmpeg, RTPPort: s.h.cfg.AudioRTPPort, Track: audioTrack,
 		LogPath: filepath.Join(s.h.cfg.LogsDir, "ffmpeg-audio-"+s.ID()+".log"), Counts: &media.Counters{}}
+	if s.h.cfg.PerSlot {
+		// Shared view 0 is the pipeline above, untouched; slot views get their
+		// own track, counters and an ephemeral loopback port. Stage 2 binds
+		// peers to them.
+		shared := s.enc
+		s.views = media.NewViewSet(func(view int) (media.Encoder, *webrtc.TrackLocalStaticRTP) {
+			if view == media.SharedView {
+				return shared, track
+			}
+			slotTrack, terr := rtc.NewVideoTrackRTP()
+			if terr != nil {
+				return nil, nil
+			}
+			preset := s.start.Encoder
+			if k := s.h.cfg.PerSlotBitrateKbps; k > 0 {
+				preset.BitrateKbps = k
+			}
+			return &media.Pipeline{FFmpeg: s.h.cfg.FFmpeg, Preset: preset, Encoder: encoder, Fallback: s.h.cfg.EncoderFallback, Track: slotTrack,
+				LogPath: filepath.Join(s.h.cfg.LogsDir, fmt.Sprintf("ffmpeg-%s-slot%d.log", s.ID(), view-1)), Counts: &media.Counters{}}, slotTrack
+		})
+	}
 	return nil
 }
 
@@ -1313,6 +1341,9 @@ func (s *Session) cleanup() {
 	s.peers = map[string]*peerState{}
 	if s.mux != nil {
 		s.mux.Close()
+	}
+	if s.views != nil {
+		s.views.StopAll()
 	}
 	if s.enc != nil {
 		s.enc.Stop()
