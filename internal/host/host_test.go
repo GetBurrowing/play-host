@@ -78,6 +78,7 @@ type fakeGame struct {
 	done    chan struct{}
 	exitNow chan int
 	killed  atomic.Bool
+	inject  chan []byte // raw bytes written to the link between frames
 }
 
 func startFakeGame(t *testing.T, port int) *fakeGame {
@@ -85,7 +86,7 @@ func startFakeGame(t *testing.T, port int) *fakeGame {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := &fakeGame{ln: ln, done: make(chan struct{}), exitNow: make(chan int, 1)}
+	g := &fakeGame{ln: ln, done: make(chan struct{}), exitNow: make(chan int, 1), inject: make(chan []byte, 8)}
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
@@ -121,6 +122,10 @@ func startFakeGame(t *testing.T, port int) *fakeGame {
 			select {
 			case <-g.done:
 				return
+			case b := <-g.inject:
+				if _, err := c.Write(b); err != nil {
+					return
+				}
 			case <-t.C:
 				if g.export.Load() {
 					if _, err := c.Write(append(append([]byte(nil), hdr...), frame...)); err != nil {
@@ -220,6 +225,9 @@ type core struct {
 	offer    chan protocol.Signal
 	events   []string // every event name, in order
 	activity []protocol.SlotActivity
+	views    []protocol.PeerView // play_peer_view, in order
+	viewRaw  []string            // their exact bytes
+	trace    []string            // "resume" and "view <peer> <view> <slot>", in order
 }
 
 func (c *core) Push(event string, payload any) error {
@@ -228,6 +236,16 @@ func (c *core) Push(event string, payload any) error {
 	defer c.mu.Unlock()
 	c.events = append(c.events, event)
 	switch event {
+	case protocol.EventPeerView:
+		var v protocol.PeerView
+		json.Unmarshal(b, &v)
+		c.views = append(c.views, v)
+		c.viewRaw = append(c.viewRaw, string(b))
+		slot := "-"
+		if v.Slot != nil {
+			slot = fmt.Sprint(*v.Slot)
+		}
+		c.trace = append(c.trace, "view "+v.PeerID+" "+v.View+" "+slot)
 	case protocol.EventSlotActivity:
 		var a protocol.SlotActivity
 		json.Unmarshal(b, &a)
@@ -239,6 +257,7 @@ func (c *core) Push(event string, payload any) error {
 		var r protocol.ResumeStatus
 		if json.Unmarshal(b, &r) == nil && r.Resume {
 			c.resumes = append(c.resumes, r)
+			c.trace = append(c.trace, "resume")
 		}
 	case protocol.EventSignal:
 		var s protocol.Signal

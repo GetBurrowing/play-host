@@ -31,6 +31,7 @@ import (
 	"math/rand/v2"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,11 @@ const Feature = "game_stream_host"
 // Core sends play_peer_open, play_peer_close and play_slots only to a host
 // that declares it, and otherwise keeps v1 single-peer wiring.
 const FeatureMulti = "game_stream_multi"
+
+// FeaturePerSlot declares one encoder per joined player slot plus a shared
+// one (core protocol "Per-slot video"). Declared only together with
+// FeatureMulti.
+const FeaturePerSlot = "game_stream_per_slot"
 
 // FeatureTouch declares that the host forwards touch input (core
 // Protocol.touch_feature/0, task 01a0fe45). Core enables the browser's
@@ -81,6 +87,8 @@ type Config struct {
 	// test or rig sets it to run a host WITHOUT FeatureTouch: the negative
 	// control for core's touch gate.
 	Features []string
+	// PerSlot declares FeaturePerSlot, but only together with FeatureMulti.
+	PerSlot bool
 	// WriteBufferSize is the websocket Dialer's write buffer (0 =
 	// DefaultWriteBufferSize). gorilla sends a message larger than it as a
 	// FRAGMENTED message; at its own default of 4096 bytes, most offers (about
@@ -101,6 +109,8 @@ const DefaultWriteBufferSize = 64 << 10
 type Client struct {
 	cfg Config
 	h   Handler
+
+	perSlotWarn sync.Once
 
 	mu      sync.Mutex
 	conn    *websocket.Conn
@@ -207,10 +217,19 @@ func (c *Client) JoinPayload() map[string]any {
 }
 
 func (c *Client) features() []string {
+	f := []string{Feature, FeatureMulti, FeatureTouch}
 	if c.cfg.Features != nil {
-		return c.cfg.Features
+		f = c.cfg.Features
 	}
-	return []string{Feature, FeatureMulti, FeatureTouch}
+	if !c.cfg.PerSlot {
+		return f
+	}
+	if !slices.Contains(f, FeatureMulti) {
+		c.perSlotWarn.Do(func() { c.cfg.Logf("suite: per_slot needs %s; not declared", FeatureMulti) })
+		return f
+	}
+	// A fresh slice: never append into the caller's Features backing array.
+	return append(slices.Clone(f), FeaturePerSlot)
 }
 
 // Run connects, joins and pumps until ctx is done, reconnecting with backoff.

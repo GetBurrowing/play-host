@@ -20,6 +20,9 @@ extends Node
 ## (the root viewport's image that _on_frame_post_draw sends) and are
 ## mapped to root Window coordinates (frame_to_window), which
 ## parse_input_event then takes through the stretch transform like an OS event.
+## For a slot with a registered SubViewport (see "Per-view export" below) x, y
+## are of that view's frame, mapped to the SubViewport's pixel size and
+## delivered with SubViewport.push_input(ev, true).
 ##
 ## Device ids (task 01a0dbd6, measured on Godot 4.7.2): a key event's default
 ## device is 16 (the keyboard id), and the built-in ui_* actions are bound to
@@ -34,6 +37,20 @@ extends Node
 ## no microphone or desktop-loopback API is used.
 ## Frame record (little-endian): "SPF1", u32 width, u32 height, u32 kind
 ## (1 = Image.FORMAT_RGBA8 from get_image, 2 = RD texture bytes), u32 length, bytes.
+##
+## Per-view export (task 01a1a358): a game that renders each player slot into
+## its own SubViewport calls, on this autoload (feature-detect with has_method):
+##   register_slot_view(slot: int, viewport: SubViewport)   slot 0..31
+##   register_shared_view(viewport: SubViewport)
+##   unregister_view(viewport: SubViewport)
+## With nothing registered the root viewport is exported as SPF1, exactly as
+## above (the fallback). With any registration, one record per registered
+## view is exported INSTEAD of the root, as SPF2:
+## "SPF2", u32 width, u32 height, u32 kind, u32 length, u32 view, bytes
+## (24 byte header, little-endian). view 0 = shared, 1 + slot = that slot.
+## The probe marker is drawn into every registered view (a CanvasLayer the
+## addon adds to the SubViewport), so each slot's browser probe measures its
+## own encoder. A game keeps the top-left 96x96 px of every view clear for it.
 ##
 ## All input goes through Input.parse_input_event: no ViGEm, no virtual
 ## device driver. Mapping and edge-diffing are done by the host (Go, unit
@@ -81,6 +98,8 @@ const CELLS := 4
 const CELL_PX := 16
 const PROBE_FRAMES := 2
 const MAX_SEQ := 4095
+const MAX_SLOTS := 32
+const ASYNC_INFLIGHT_CAP := 2
 const SLOT_META := &"burrow_play_slot"
 ## Older games read the slot under its previous name; every event carries both.
 const LEGACY_SLOT_META := &"suite_play_slot"
@@ -109,6 +128,11 @@ var _peer: StreamPeerTCP
 var _rx := PackedByteArray()
 var _layer: CanvasLayer
 var _cells: Array[ColorRect] = []
+var _views := {}  # view id (0 shared, 1 + slot) -> SubViewport
+var _view_layers := {}  # view id -> CanvasLayer holding that view's marker
+var _view_cells := {}  # view id -> Array[ColorRect]
+var _async_inflight_view := {}  # view id -> in-flight async readbacks
+var _rd_view_tex := {}  # view id -> RID
 var _probe_left := 0
 var _rd_tex := RID()
 var _async_inflight := 0
@@ -182,14 +206,91 @@ func _build_marker() -> void:
 	_layer = CanvasLayer.new()
 	_layer.layer = 128
 	add_child(_layer)
+	_cells = _build_cells(_layer)
+
+
+## The 4x4 marker grid as children of `layer`, row-major.
+static func _build_cells(layer: CanvasLayer) -> Array[ColorRect]:
+	var cells: Array[ColorRect] = []
 	for i in CELLS * CELLS:
 		var r := ColorRect.new()
 		r.color = Color.BLACK
 		r.position = Vector2((i % CELLS) * CELL_PX, (i / CELLS) * CELL_PX)
 		r.size = Vector2(CELL_PX, CELL_PX)
 		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_layer.add_child(r)
-		_cells.append(r)
+		layer.add_child(r)
+		cells.append(r)
+	return cells
+
+
+## Registers the SubViewport rendering player `slot` (0..31) for per-view
+## export (SPF2 view 1 + slot). Replaces any view already on that slot.
+func register_slot_view(slot: int, viewport: SubViewport) -> void:
+	if slot < 0 or slot >= MAX_SLOTS:
+		push_error("burrow_play: register_slot_view slot %d out of range" % slot)
+		return
+	_register_view(1 + slot, viewport)
+
+
+## Registers the SubViewport carrying the shared view (SPF2 view 0).
+func register_shared_view(viewport: SubViewport) -> void:
+	_register_view(0, viewport)
+
+
+## Stops exporting `viewport` and removes the marker the addon put in it.
+func unregister_view(viewport: SubViewport) -> void:
+	for id in _views.keys():
+		if _views[id] == viewport:
+			_drop_view(id)
+
+
+func _register_view(id: int, viewport: SubViewport) -> void:
+	if viewport == null or not is_instance_valid(viewport):
+		return
+	unregister_view(viewport)
+	if _views.has(id):
+		_drop_view(id)
+	var layer := CanvasLayer.new()
+	layer.layer = 128
+	viewport.add_child(layer)
+	_views[id] = viewport
+	_view_layers[id] = layer
+	_view_cells[id] = _build_cells(layer)
+
+
+func _drop_view(id: int) -> void:
+	var layer: CanvasLayer = _view_layers.get(id)
+	if layer != null and is_instance_valid(layer) and layer.get_parent() != null:
+		layer.get_parent().remove_child(layer)
+		layer.queue_free()
+	_views.erase(id)
+	_view_layers.erase(id)
+	_view_cells.erase(id)
+	_async_inflight_view.erase(id)
+	_rd_view_tex.erase(id)
+
+
+## Registered view ids, ascending; drops views whose SubViewport was freed.
+func _view_ids() -> Array:
+	for id in _views.keys():
+		if not is_instance_valid(_views[id]):
+			_drop_view(id)
+	var ids := _views.keys()
+	ids.sort()
+	return ids
+
+
+## The SubViewport a slot's touch goes to, or null (root path).
+func _slot_view(slot: int) -> SubViewport:
+	var vp = _views.get(1 + slot)
+	if vp != null and is_instance_valid(vp):
+		return vp
+	return null
+
+
+func _paint(cells: Array, v: int) -> void:
+	for i in cells.size():
+		cells[i].color = Color.WHITE if (v >> (15 - i)) & 1 == 1 else Color.BLACK
 
 
 static func check(seq: int) -> int:
@@ -199,8 +300,9 @@ static func check(seq: int) -> int:
 
 func show_probe(seq: int) -> void:
 	var v := ((seq & MAX_SEQ) << 4) | check(seq)
-	for i in CELLS * CELLS:
-		_cells[i].color = Color.WHITE if (v >> (15 - i)) & 1 == 1 else Color.BLACK
+	_paint(_cells, v)
+	for id in _view_cells:
+		_paint(_view_cells[id], v)
 	_probe_left = PROBE_FRAMES
 	probes_seen += 1
 
@@ -208,6 +310,9 @@ func show_probe(seq: int) -> void:
 func _clear_probe() -> void:
 	for r in _cells:
 		r.color = Color.BLACK
+	for id in _view_cells:
+		for r in _view_cells[id]:
+			r.color = Color.BLACK
 
 
 func _process(_delta: float) -> void:
@@ -398,19 +503,38 @@ static func _touch_event(d: int, index: int, pressed: bool, canceled: bool, pos:
 
 func _touch(d: int, index: int, pressed: bool, canceled: bool, x: float, y: float) -> void:
 	_touch_ready()
-	var pos := frame_to_window(x, y)
+	var pos := _touch_pos(d, x, y)
 	if pressed:
 		_held_touches[index] = [d, pos, Time.get_ticks_usec()]
 	else:
 		_held_touches.erase(index)
-	Input.parse_input_event(_touch_event(d, index, pressed, canceled and not pressed, pos))
+	_deliver(d, _touch_event(d, index, pressed, canceled and not pressed, pos))
+
+
+## Normalised frame coordinates -> event position: SubViewport pixels for a
+## slot with a registered view, root Window coordinates otherwise.
+func _touch_pos(d: int, x: float, y: float) -> Vector2:
+	var vp := _slot_view(d)
+	if vp != null:
+		return Vector2(x, y) * Vector2(vp.size)
+	return frame_to_window(x, y)
+
+
+## A SubViewport receives no root-window events, so a slot with a registered
+## view gets its touch pushed straight into it; everything else is parsed.
+func _deliver(d: int, ev: InputEvent) -> void:
+	var vp := _slot_view(d)
+	if vp != null:
+		vp.push_input(ev, true)
+	else:
+		Input.parse_input_event(ev)
 
 
 ## A drag on an index that is not held is not an edge (Godot never sends one).
 func _drag(d: int, index: int, x: float, y: float) -> void:
 	if not _held_touches.has(index):
 		return
-	var pos := frame_to_window(x, y)
+	var pos := _touch_pos(d, x, y)
 	var h: Array = _held_touches[index]
 	var now := Time.get_ticks_usec()
 	var dt := maxf(float(now - int(h[2])) / 1000000.0, 0.001)
@@ -426,7 +550,7 @@ func _drag(d: int, index: int, x: float, y: float) -> void:
 	ev.screen_velocity = ev.velocity
 	ev.pressure = 1.0
 	_held_touches[index] = [d, pos, now]
-	Input.parse_input_event(ev)
+	_deliver(d, ev)
 
 
 ## Touch indices this addon holds pressed (selftest reads it).
@@ -481,7 +605,7 @@ func _release(device: int) -> void:
 		var t: Array = _held_touches[index]
 		if device >= 0 and t[0] != device:
 			continue
-		Input.parse_input_event(_touch_event(t[0], index, false, true, t[1]))
+		_deliver(t[0], _touch_event(t[0], index, false, true, t[1]))
 		_held_touches.erase(index)
 
 
@@ -494,12 +618,47 @@ func _on_frame_post_draw() -> void:
 		return
 	match export_mode:
 		"image":
-			var img := get_viewport().get_texture().get_image()
-			if img.get_format() != Image.FORMAT_RGBA8:
-				img.convert(Image.FORMAT_RGBA8)
-			_send_frame(img.get_width(), img.get_height(), 1, img.get_data())
+			if _views.is_empty():
+				_export_image(get_viewport(), -1)
+			else:
+				for id in _view_ids():
+					_export_image(_views[id], id)
 		"async":
-			_request_async()
+			if _views.is_empty():
+				_request_async()
+			else:
+				for id in _view_ids():
+					_request_async_view(id)
+
+
+## Selftest hook: when valid, called with the viewport instead of
+## get_texture().get_image() (the headless dummy renderer has no textures).
+var image_source := Callable()
+
+
+func _export_image(vp: Viewport, view: int) -> void:
+	var img: Image = image_source.call(vp) if image_source.is_valid() else vp.get_texture().get_image()
+	if img == null or img.is_empty():
+		return
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img.convert(Image.FORMAT_RGBA8)
+	_send_frame(img.get_width(), img.get_height(), 1, img.get_data(), view)
+
+
+func _request_async_view(id: int) -> void:
+	if int(_async_inflight_view.get(id, 0)) >= ASYNC_INFLIGHT_CAP:
+		return
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	var vp: SubViewport = _views[id]
+	if not _rd_view_tex.has(id):
+		_rd_view_tex[id] = RenderingServer.texture_get_rd_texture(vp.get_texture().get_rid())
+	var size := vp.get_texture().get_size()
+	_async_inflight_view[id] = int(_async_inflight_view.get(id, 0)) + 1
+	rd.texture_get_data_async(_rd_view_tex[id], 0, func(data: PackedByteArray) -> void:
+		_async_inflight_view[id] = int(_async_inflight_view.get(id, 1)) - 1
+		_send_frame(int(size.x), int(size.y), 2, data, id))
 
 
 func _request_async() -> void:
@@ -519,15 +678,19 @@ func _request_async() -> void:
 		_send_frame(int(size.x), int(size.y), 2, data))
 
 
-func _send_frame(w: int, h: int, kind: int, data: PackedByteArray) -> void:
+## view < 0 writes the 20 byte SPF1 header (root fallback); view >= 0 writes
+## the 24 byte SPF2 header carrying the view id.
+func _send_frame(w: int, h: int, kind: int, data: PackedByteArray, view: int = -1) -> void:
 	if _peer == null:
 		return
 	var hdr := StreamPeerBuffer.new()
-	hdr.put_data("SPF1".to_ascii_buffer())
+	hdr.put_data(("SPF1" if view < 0 else "SPF2").to_ascii_buffer())
 	hdr.put_u32(w)
 	hdr.put_u32(h)
 	hdr.put_u32(kind)
 	hdr.put_u32(data.size())
+	if view >= 0:
+		hdr.put_u32(view)
 	_peer.put_data(hdr.data_array)
 	_peer.put_data(data)
 	frames_sent += 1

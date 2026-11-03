@@ -351,6 +351,10 @@ func ErrClass(err error) string {
 // browserField maps a JSON path from UnmarshalTypeError onto the Browser
 // field it names, or "?" when it names none.
 func browserField(path string) string {
+	// Go 1.27 reports the full path ("Browser.buttons.0"); older releases the
+	// field alone. Either way the Browser field is the first real element.
+	path = strings.TrimPrefix(path, "Browser.")
+	path, _, _ = strings.Cut(path, ".")
 	rt := reflect.TypeOf(Browser{})
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)

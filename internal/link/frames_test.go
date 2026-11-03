@@ -2,6 +2,7 @@ package link
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/Startup-Suite/play-host/internal/probe"
@@ -57,5 +58,47 @@ func TestFrameHeaderRoundTrip(t *testing.T) {
 	}
 	if _, err := ReadFrameHeader(bytes.NewReader([]byte("XXXX0000000000000000"))); err == nil {
 		t.Fatal("bad magic accepted")
+	}
+}
+
+func TestSPF2RoundTrip(t *testing.T) {
+	for _, view := range []uint32{0, 1, 17, MaxView} {
+		var b bytes.Buffer
+		in := FrameHeader{Width: 640, Height: 360, Kind: KindImageRGBA8, Length: 640 * 360 * 4, View: view}
+		if err := WriteFrameHeader2(&b, in); err != nil {
+			t.Fatal(err)
+		}
+		if b.Len() != 24 {
+			t.Fatalf("SPF2 header is %d bytes", b.Len())
+		}
+		out, err := ReadFrameHeader(&b)
+		if err != nil || out != in {
+			t.Fatalf("view %d: %+v %v", view, out, err)
+		}
+	}
+}
+
+func TestSPF1UnchangedBytes(t *testing.T) {
+	var b bytes.Buffer
+	if err := WriteFrameHeader(&b, FrameHeader{Width: 64, Height: 48, Kind: 1, Length: 12288, View: 9}); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{'S', 'P', 'F', '1', 64, 0, 0, 0, 48, 0, 0, 0, 1, 0, 0, 0, 0, 0x30, 0, 0}
+	if !bytes.Equal(b.Bytes(), want) {
+		t.Fatalf("SPF1 bytes % x, want % x", b.Bytes(), want)
+	}
+	h, err := ReadFrameHeader(&b)
+	if err != nil || h.View != 0 {
+		t.Fatalf("%+v %v", h, err)
+	}
+}
+
+func TestSPF2TruncatedHeader(t *testing.T) {
+	var b bytes.Buffer
+	_ = WriteFrameHeader2(&b, FrameHeader{Width: 64, Height: 48, Kind: 1, Length: 12288, View: 2})
+	for _, n := range []int{22, 20} { // inside the view field; exactly the SPF1 length
+		if _, err := ReadFrameHeader(bytes.NewReader(b.Bytes()[:n])); err != io.ErrUnexpectedEOF {
+			t.Fatalf("%d bytes: %v", n, err)
+		}
 	}
 }

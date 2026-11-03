@@ -109,6 +109,14 @@ func (p *Pipeline) Start(w, h int) error {
 	if err != nil {
 		return fmt.Errorf("rtp listen: %w", err)
 	}
+	// RTPPort 0 asks for an ephemeral loopback port (per-slot views); the
+	// ffmpeg Args need the real one. RTPPort > 0 is unchanged.
+	rtpPort := p.RTPPort
+	if rtpPort == 0 {
+		if ua, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+			rtpPort = ua.Port
+		}
+	}
 	selected := p.Selected
 	if selected == "" {
 		selected = p.Encoder
@@ -133,7 +141,7 @@ func (p *Pipeline) Start(w, h int) error {
 		}
 		p.Selected = selected
 	}
-	p.Args = CommandForEncoder(RawInputArgs("rgba", w, h, p.Preset.FPS), p.Preset, selected, FramingRTP, p.RTPPort)
+	p.Args = CommandForEncoder(RawInputArgs("rgba", w, h, p.Preset.FPS), p.Preset, selected, FramingRTP, rtpPort)
 	cmd := exec.Command(p.FFmpeg, p.Args...)
 	var logf *os.File
 	if p.LogPath != "" {

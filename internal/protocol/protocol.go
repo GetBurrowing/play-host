@@ -79,6 +79,7 @@ const (
 	EventPeerClose     = "play_peer_close"
 	EventSlots         = "play_slots"
 	EventSlotActivity  = "play_slot_activity"
+	EventPeerView      = "play_peer_view"
 )
 
 // Session states, in order. Ended and failed are terminal.
@@ -334,4 +335,23 @@ func TruncateDetail(d string) string {
 		cut--
 	}
 	return d[:cut]
+}
+
+// Peer view kinds for play_peer_view.
+const (
+	ViewSlot   = "slot"
+	ViewShared = "shared"
+)
+
+// MaxViewSlot is the highest slot core accepts in a play_peer_view.
+const MaxViewSlot = 31
+
+// PeerView is play_peer_view (task 01a1a34c): which encode a peer's
+// connection carries. Slot is omitted when View is "shared". Sent only by a
+// host that declares game_stream_per_slot, never for the v1 peer (id "").
+type PeerView struct {
+	SessionID string `json:"session_id"`
+	PeerID    string `json:"peer_id"`
+	View      string `json:"view"`
+	Slot      *int   `json:"slot,omitempty"`
 }

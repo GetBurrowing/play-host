@@ -66,6 +66,12 @@ type FileConfig struct {
 	// negative control for core's touch gate. Absent = the default set.
 	LogTouch bool     `json:"log_touch"`
 	Features []string `json:"features"`
+	// PerSlot runs one encoder per joined player slot plus a shared one and
+	// declares game_stream_per_slot (only together with game_stream_multi).
+	// PerSlotBitrateKbps is each slot encoder's bitrate; 0 = the session
+	// preset's.
+	PerSlot            bool `json:"per_slot"`
+	PerSlotBitrateKbps int  `json:"per_slot_bitrate_kbps"`
 }
 
 // LoadConfig reads and checks the config file.
@@ -187,6 +193,7 @@ func (c FileConfig) hostConfig() host.Config {
 		LinkTimeout:   time.Duration(c.LaunchTimeoutS) * time.Second,
 		ProgressEvery: time.Duration(c.ProgressEveryMs) * time.Millisecond,
 		LogTouch:      c.LogTouch,
+		PerSlot:       c.PerSlot, PerSlotBitrateKbps: c.PerSlotBitrateKbps,
 		Build: build.Config{Git: c.Git, SSH: c.SSH, KnownHosts: c.KnownHosts, MirrorsDir: c.MirrorsDir,
 			CheckoutsDir: c.CheckoutsDir, AddonDir: c.AddonDir, Repos: c.Repos, KeepCheckouts: c.KeepCheckouts},
 	}
@@ -221,7 +228,7 @@ func serve(args []string) error {
 	h.SweepCheckouts(sweepCtx)
 	sweepDone()
 	cl := suite.New(suite.Config{URL: c.BurrowURL, RuntimeID: c.RuntimeID, TokenFile: c.TokenFile, Product: "play-host",
-		Version: Version, Heartbeat: time.Duration(c.HeartbeatS) * time.Second, Features: c.Features}, h)
+		Version: Version, Heartbeat: time.Duration(c.HeartbeatS) * time.Second, Features: c.Features, PerSlot: c.PerSlot}, h)
 	h.SetSender(cl)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
