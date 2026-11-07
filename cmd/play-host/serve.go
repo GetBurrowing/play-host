@@ -20,6 +20,8 @@ import (
 	"github.com/Startup-Suite/play-host/internal/input"
 	"github.com/Startup-Suite/play-host/internal/launch"
 	"github.com/Startup-Suite/play-host/internal/media"
+	"github.com/Startup-Suite/play-host/internal/nativehost"
+	"github.com/Startup-Suite/play-host/internal/protocol"
 	"github.com/Startup-Suite/play-host/internal/suite"
 )
 
@@ -28,7 +30,8 @@ var Version = "dev"
 
 // FileConfig is the platform-neutral on-disk host configuration.
 type FileConfig struct {
-	BurrowURL string `json:"burrow_url"` // ws(s)://host[:port]/runtime/ws
+	Native    nativehost.Config `json:"native"`
+	BurrowURL string            `json:"burrow_url"` // ws(s)://host[:port]/runtime/ws
 	// SuiteURL is the deprecated name of burrow_url. A config.json that
 	// still has only suite_url loads unchanged; burrow_url wins when both
 	// are set.
@@ -85,6 +88,13 @@ func LoadConfig(path string) (FileConfig, error) {
 		return c, fmt.Errorf("%s: %w", path, err)
 	}
 	resolveBurrowURL(&c, path)
+	if c.Native.Enabled {
+		c.Native.RuntimeID = c.RuntimeID
+		if c.BurrowURL == "" || c.RuntimeID == "" || c.TokenFile == "" || c.LogsDir == "" {
+			return c, fmt.Errorf("native runtime connection and logs_dir required")
+		}
+		return c, c.Native.Validate()
+	}
 	if c.Encoder == "" {
 		c.Encoder = media.EncoderAuto
 	}
@@ -207,6 +217,9 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	if c.Native.Enabled {
+		return serveNative(c)
+	}
 	if err := c.resolveExecutables(); err != nil {
 		return err
 	}
@@ -276,4 +289,24 @@ func logPanic() {
 
 func keynames() error {
 	return json.NewEncoder(os.Stdout).Encode(input.KeyNames())
+}
+
+// Native-only mode deliberately skips Godot/ffmpeg/NVENC/checkout initialization.
+func serveNative(c FileConfig) error {
+	lf, err := setupLogging(c.LogsDir)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+	h, err := nativehost.New(c.Native, nil)
+	if err != nil {
+		return err
+	}
+	cl := suite.New(suite.Config{URL: c.BurrowURL, RuntimeID: c.RuntimeID, TokenFile: c.TokenFile, Product: "play-host", Version: Version, Features: []string{protocol.FeatureNative}}, h)
+	h.SetSender(cl)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	go h.Run(ctx)
+	cl.Run(ctx)
+	return nil
 }
