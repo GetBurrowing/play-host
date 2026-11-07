@@ -207,7 +207,7 @@ func (h *Host) start(p protocol.NativeStart) {
 	credential := hex.EncodeToString(raw)
 	digest := sha256.Sum256([]byte(credential))
 	s.CredentialHash = hex.EncodeToString(digest[:])
-	config := map[string]any{"session_id": p.SessionID, "build_id": p.BuildID, "generation": p.Generation, "protocol_version": p.ProtocolVersion, "credential": credential, "admission_url": strings.TrimRight(h.cfg.AdmissionURL, "/") + "/" + p.SessionID, "roster_file": "/run/native-state/roster.json"}
+	config := map[string]any{"session_id": p.SessionID, "build_id": p.BuildID, "generation": p.Generation, "protocol_version": p.ProtocolVersion, "credential": credential, "admission_url": strings.TrimRight(h.cfg.AdmissionURL, "/") + "/" + p.SessionID, "control_url": strings.TrimSuffix(strings.TrimRight(h.cfg.AdmissionURL, "/"), "/admit") + "/control/" + p.SessionID, "roster_file": "/run/native-state/roster.json"}
 	b, _ := json.Marshal(config)
 	if os.WriteFile(filepath.Join(dir, "config.json"), b, 0600) != nil {
 		h.send(s, "failed")
