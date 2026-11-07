@@ -112,7 +112,7 @@ func New(c Config, r Runner) (*Host, error) {
 }
 func (h *Host) SetSender(s Sender) { h.mu.Lock(); defer h.mu.Unlock(); h.sender = s }
 func (h *Host) label() string {
-	v := sha256.Sum256([]byte(h.cfg.RuntimeID))
+	v := sha256.Sum256([]byte(h.cfg.RuntimeID + "\n" + strings.TrimRight(h.cfg.AdmissionURL, "/")))
 	return "burrow.native.owner=" + hex.EncodeToString(v[:8])
 }
 func (h *Host) name(id string) string { return "burrow-native-" + id }

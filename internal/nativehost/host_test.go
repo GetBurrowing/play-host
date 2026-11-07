@@ -22,6 +22,14 @@ type fakeRunner struct {
 func (f *fakeRunner) Run(_ context.Context, a ...string) ([]byte, error) {
 	f.calls = append(f.calls, append([]string{}, a...))
 	if a[0] == "ps" {
+		for i, v := range a {
+			if v == "--filter" && strings.HasPrefix(a[i+1], "label=") {
+				pair := strings.SplitN(strings.TrimPrefix(a[i+1], "label="), "=", 2)
+				if len(pair) == 2 && f.labels[pair[0]] != pair[1] {
+					return nil, nil
+				}
+			}
+		}
 		return []byte(f.names), nil
 	}
 	if a[0] == "inspect" {
@@ -173,5 +181,27 @@ func TestConfigRejectsHTTPAndMutableImages(t *testing.T) {
 	c.Images = []string{"game:latest"}
 	if c.Validate() == nil {
 		t.Fatal("mutable image accepted")
+	}
+}
+
+func TestOrphanSweepCannotCrossCoreInstallations(t *testing.T) {
+	c := config(t)
+	r := &fakeRunner{labels: map[string]string{}}
+	h, e := New(c, r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	h.start(startPayload())
+	other := config(t)
+	other.RuntimeID = c.RuntimeID
+	other.AdmissionURL = "https://another-core.example/api/ext/play/admit"
+	before := len(r.calls)
+	if _, e := New(other, r); e != nil {
+		t.Fatal(e)
+	}
+	for _, a := range r.calls[before:] {
+		if a[0] == "rm" {
+			t.Fatal("orphan sweep removed another core installation's container")
+		}
 	}
 }
