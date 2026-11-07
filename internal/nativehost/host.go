@@ -87,6 +87,7 @@ type Host struct {
 	sessions     map[string]*session
 	connected    bool
 	disconnected time.Time
+	lastControl  time.Time
 }
 
 func New(c Config, r Runner) (*Host, error) {
@@ -129,6 +130,9 @@ func (h *Host) OnEvent(event string, payload json.RawMessage) {
 	go func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		if event == protocol.EventNativeStart || event == protocol.EventNativeStop || event == protocol.EventNativeReconcile {
+			h.lastControl = time.Now()
+		}
 		switch event {
 		case protocol.EventNativeStart:
 			var s protocol.NativeStart
@@ -219,7 +223,7 @@ func (h *Host) start(p protocol.NativeStart) {
 		"--memory=2g", "--cpus=2", "--pids-limit=128", "--tmpfs", "/tmp:rw,size=128m", "-p", strconv.Itoa(s.Port)+":24972/udp",
 		"--mount", "type=bind,src="+filepath.Join(dir, "config.json")+",dst=/run/native/config.json,ro=true",
 		"--mount", "type=bind,src="+filepath.Join(dir, "state")+",dst=/run/native-state",
-		"--env", "GAME_NATIVE_CONFIG_FILE=/run/native/config.json", image)
+		"--env", "GAME_NATIVE_CONFIG_FILE=/run/native/config.json", "--env", "HOME=/tmp", "--env", "XDG_DATA_HOME=/tmp", image)
 	if err != nil {
 		h.send(s, "failed")
 		return
@@ -327,6 +331,7 @@ func (h *Host) OnConnected() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.connected = true
+	h.lastControl = time.Now()
 	for _, s := range h.sessions {
 		h.refresh(s)
 	}
@@ -347,7 +352,7 @@ func (h *Host) Run(ctx context.Context) {
 		case <-ticker.C:
 			h.mu.Lock()
 			for _, s := range h.sessions {
-				if !h.connected && !h.disconnected.IsZero() && time.Since(h.disconnected) > 120*time.Second {
+				if (!h.connected && !h.disconnected.IsZero() && time.Since(h.disconnected) > 120*time.Second) || (!h.lastControl.IsZero() && time.Since(h.lastControl) > 120*time.Second) {
 					h.stop(s)
 				} else {
 					h.refresh(s)
