@@ -78,6 +78,7 @@ type session struct {
 	Started        time.Time            `json:"started"`
 	LastRoster     time.Time            `json:"-"`
 	Admissions     []string             `json:"-"`
+	FailureReason  string               `json:"-"`
 }
 type Host struct {
 	mu           sync.Mutex
@@ -122,7 +123,7 @@ func (h *Host) run(args ...string) ([]byte, error) {
 }
 func (h *Host) send(s *session, state string) {
 	if h.sender != nil {
-		_ = h.sender.Push(protocol.EventNativeStatus, protocol.NativeStatus{SessionID: s.Start.SessionID, Generation: s.Start.Generation, State: state, Endpoint: net.JoinHostPort(h.cfg.PublicHost, strconv.Itoa(s.Port)), CredentialHash: s.CredentialHash, Admissions: append([]string{}, s.Admissions...)})
+		_ = h.sender.Push(protocol.EventNativeStatus, protocol.NativeStatus{SessionID: s.Start.SessionID, Generation: s.Start.Generation, State: state, Reason: s.FailureReason, Endpoint: net.JoinHostPort(h.cfg.PublicHost, strconv.Itoa(s.Port)), CredentialHash: s.CredentialHash, Admissions: append([]string{}, s.Admissions...)})
 	}
 }
 func (h *Host) OnEvent(event string, payload json.RawMessage) {
@@ -169,6 +170,7 @@ func (h *Host) start(p protocol.NativeStart) {
 		}
 	}
 	if !allowed || p.Build["id"] != p.BuildID {
+		s.FailureReason = "image_not_allowed"
 		h.send(s, "failed")
 		return
 	}
@@ -191,6 +193,7 @@ func (h *Host) start(p protocol.NativeStart) {
 		}
 	}
 	if s.Port == 0 {
+		s.FailureReason = "host_full"
 		h.send(s, "failed")
 		return
 	}

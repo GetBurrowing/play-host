@@ -21,6 +21,7 @@ type NativeStatus struct {
 	SessionID      string   `json:"session_id"`
 	Generation     int      `json:"generation"`
 	State          string   `json:"state"`
+	Reason         string   `json:"reason,omitempty"`
 	Endpoint       string   `json:"endpoint,omitempty"`
 	CredentialHash string   `json:"credential_hash,omitempty"`
 	Admissions     []string `json:"admissions"`

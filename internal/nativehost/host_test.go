@@ -128,7 +128,7 @@ func TestFullHostAndUnallowlistedImageFailWithoutStarting(t *testing.T) {
 	h.start(p)
 	p.SessionID = "019d1357-cb08-7023-b165-fd19e9462317"
 	h.start(p)
-	if len(h.sessions) != 1 || s.statuses[len(s.statuses)-1].State != "failed" {
+	if len(h.sessions) != 1 || s.statuses[len(s.statuses)-1].State != "failed" || s.statuses[len(s.statuses)-1].Reason != "host_full" {
 		t.Fatal("full host accepted")
 	}
 }
