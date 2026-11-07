@@ -28,15 +28,56 @@ type Sender interface{ Push(string, any) error }
 type Runner interface {
 	Run(context.Context, ...string) ([]byte, error)
 }
-type Podman struct{ Binary string }
+type commandRunner interface {
+	Run(context.Context, string, ...string) ([]byte, error)
+}
+type commandExec struct{}
+
+func (commandExec) Run(ctx context.Context, binary string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, binary, args...).Output()
+}
+
+type Podman struct {
+	Binary     string
+	SystemdRun string
+	executor   commandRunner
+}
 
 func (p Podman) Run(ctx context.Context, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, p.Binary, args...).Output()
+	binary := p.Binary
+	if binary == "" {
+		binary = "podman"
+	}
+	argv := append([]string{"--cgroup-manager=systemd"}, args...)
+	if len(args) > 0 && args[0] == "run" {
+		name := ""
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--name" {
+				name = args[i+1]
+			}
+		}
+		if !strings.HasPrefix(name, "burrow-native-") || !idRE.MatchString(strings.TrimPrefix(name, "burrow-native-")) {
+			return nil, errors.New("native scope requires a session-owned container name")
+		}
+		// Rootless networking helpers must outlive the host service's cgroup.
+		// A detached container alone does not detach conmon/slirp/rootlessport.
+		argv = append([]string{"--user", "--scope", "--collect", "--quiet", "--slice=app.slice", "--unit=" + name + ".scope", "--", binary}, argv...)
+		binary = p.SystemdRun
+		if binary == "" {
+			binary = "systemd-run"
+		}
+	}
+	runner := p.executor
+	if runner == nil {
+		runner = commandExec{}
+	}
+	return runner.Run(ctx, binary, argv...)
 }
 
 type Config struct {
 	Enabled      bool     `json:"enabled"`
 	Podman       string   `json:"podman"`
+	SystemdRun   string   `json:"systemd_run"`
 	RuntimeID    string   `json:"-"`
 	StateDir     string   `json:"state_dir"`
 	PublicHost   string   `json:"public_host"`
@@ -99,7 +140,7 @@ func New(c Config, r Runner) (*Host, error) {
 		if c.Podman == "" {
 			c.Podman = "podman"
 		}
-		r = Podman{c.Podman}
+		r = Podman{Binary: c.Podman, SystemdRun: c.SystemdRun}
 	}
 	if err := os.MkdirAll(c.StateDir, 0700); err != nil {
 		return nil, err

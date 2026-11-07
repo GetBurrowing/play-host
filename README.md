@@ -54,3 +54,7 @@ Scrub: `scripts/scrub-check.sh` fails on any tracked file that names a particula
 person or private host (its denylist is stored hashed).
 
 Tests: `go test ./...`, `GOOS=darwin GOARCH=amd64 go vet ./...`, and `GOOS=windows GOARCH=amd64 go vet ./...`.
+
+Native game hosting uses independent per-session systemd scopes so rootless network
+helpers survive a host restart. See [native host lifecycle](docs/native-host-lifecycle.md)
+for the dedicated account and restart validation requirements.
